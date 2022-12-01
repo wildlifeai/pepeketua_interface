@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+loguru
+lmdb
+sqlalchemy
+psycopg2
