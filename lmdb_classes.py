@@ -2,10 +2,9 @@ import io
 import struct
 from typing import List
 
+import lmdb
 from loguru import logger
 from PIL import Image
-
-import lmdb
 
 
 class ImageRecord(object):

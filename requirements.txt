@@ -5,3 +5,4 @@ loguru
 lmdb
 sqlalchemy
 psycopg2
+xlrd

@@ -27,9 +27,11 @@ TBC
 * TBC
 
 ## How to use
-1. TBC
-2. TBC
-3. 
+1. Create a folder by the name of `pepeketua_id`. 
+2. Place the two excel sheets in that folder.
+3. Create the subdirectory `pepeketua_id/frog_photos`
+4. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in the directory `pepeketua_id/frog_photos`
+5. Execute the docker with the arguments `pepeketua_id/<whareorino excel file> pepeketua_id/<pukeokahu excel file> pepeketua_id/frog_photos`
 
 ## Citation
 
