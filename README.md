@@ -23,7 +23,7 @@ TBC
 
 
 ## Requirements
-* [Python 3.7+](https://www.python.org/)
+* [Python 3.9+](https://www.python.org/)
 * TBC
 
 ## How to use

@@ -1,2 +1,5 @@
 # Jupyter notebook checkpoint
 .ipynb_checkpoints
+*.log
+*.xls
+*.csv

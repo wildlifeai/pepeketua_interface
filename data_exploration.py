@@ -12,5 +12,5 @@ if __name__ == "__main__":
         current_jpgs = set(filter(filter_non_jpgs, other_jpgs))
         for other_root, other_jpgs in folder_files_hash.items():
             if len(other_jpgs & current_jpgs) > 0:
-                print(root, other_root, list(other_jpgs & current_jpgs))
+                logger.log(root, other_root, list(other_jpgs & current_jpgs))
         folder_files_hash[root] = current_jpgs
