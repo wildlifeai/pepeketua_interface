@@ -33,6 +33,11 @@ TBC
 4. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in the directory `pepeketua_id/frog_photos`
 5. Execute the docker with the arguments `pepeketua_id/<whareorino excel file> pepeketua_id/<pukeokahu excel file> pepeketua_id/frog_photos`
 
+## Output
+The output of the init scripts will save some csv files to the shared folder:
+- `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
+- `missing_photos.csv`: All rows that have no "filepath" column value.
+
 ## Citation
 
 If you use this code or its models, please cite:

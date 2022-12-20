@@ -1,6 +1,7 @@
 import datetime
 import os
 import zipfile
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -8,7 +9,6 @@ from loguru import logger
 
 
 def get_frog_picture_filepaths(frog_photo_dir: str) -> pd.DataFrame:
-
     """Load zip files"""
     # Load the five zipped files
     whareorino_a = zipfile.ZipFile(
@@ -62,7 +62,7 @@ def build_photo_file_list_df(frog_photo_dir: str) -> pd.DataFrame:
     # Add the grid, filename, and capture cols
     frog_photo_file_list["Grid"] = expanded_path[0]
 
-    # frog_photo_file_list["frog_id"] = expanded_path[2]
+    frog_photo_file_list["folder_frog_id"] = expanded_path[2]
 
     frog_photo_file_list["filename"] = expanded_path[3]
 
@@ -90,7 +90,7 @@ def build_photo_file_list_df(frog_photo_dir: str) -> pd.DataFrame:
 
 def load_excel_spreadsheets(
     pukeokahu_excel_file: str, whareorino_excel_file: str
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Load the excel spreadsheets
     Read the spreadsheets with frog capture information
@@ -213,166 +213,172 @@ def filter_faulty_entries(frog_id_df):
     return frog_id_df
 
 
-def check_duplicated_photos(merged_frog_id_filename: pd.DataFrame) -> None:
-    """Find out duplicated photos"""
-    if (
-        merged_frog_id_filename[
-            merged_frog_id_filename.duplicated(
-                ["Capture photo code", "Grid"], keep=False
-            )
-        ][["Capture #", "Grid", "Capture photo code", "filepath"]].shape[0]
-        > 0
-    ):
-        logger.info(
-            (
-                "There are",
-                merged_frog_id_filename[
-                    merged_frog_id_filename.duplicated(
-                        ["Capture photo code", "Grid"], keep=False
-                    )
-                ][["Capture #", "Grid", "Capture photo code", "filepath"]].shape[0],
-                "duplicates",
-            )
-        )
-        logger.info(
-            merged_frog_id_filename[
-                merged_frog_id_filename.duplicated(
-                    ["Capture photo code", "Grid"], keep=False
-                )
-            ][["Capture #", "Grid", "Capture photo code", "filepath"]]
-        )
-        logger.info(
-            "Saving list of duplicated frog photos to duplicated_frog_photos.csv"
-        )
-        merged_frog_id_filename[
-            merged_frog_id_filename.duplicated(
-                ["Capture photo code", "Grid"], keep=False
-            )
-        ][["Capture #", "Grid", "Capture photo code", "filepath"]].to_csv(
-            "duplicated_frog_photos.csv"
-        )
-
-
 def try_to_eliminate_filepath_nans(
-    frog_photo_file_list: pd.DataFrame, merged_frog_id_filename: pd.DataFrame
+    frog_photo_file_list: pd.DataFrame, merged_frog_id_filepath: pd.DataFrame
 ) -> pd.DataFrame:
-    """Find out identifications that can't be mapped to a photo (missing filepaths)"""
+    """
+    Try to find intentifications that can't be mapped to a photo (missing filepaths) by the following method:
+    Replace original Capture photo code with manually generated photo codes.
+    For example, for rows where filepath is nan, transform capture photo code 01?11-888 -> 0_11/0111/0011-888
+    then re-merge with frog_photo_file_list on left on Capture photo code.
+
+    This new capture photo code might match a file on disk that was previously unmatched, thus filling in the filepath.
+    :param frog_photo_file_list:
+    :param merged_frog_id_filepath:
+    :return:
+    """
+
     # Missing filepaths per grid
     logger.info("Number of missing filepaths by grid:")
     logger.info(
-        merged_frog_id_filename[merged_frog_id_filename.columns.difference(["Grid"])]
+        merged_frog_id_filepath[merged_frog_id_filepath.columns.difference(["Grid"])]
         .isnull()
-        .groupby(merged_frog_id_filename["Grid"])
+        .groupby(merged_frog_id_filepath["Grid"])
         .sum()
         .astype(int)["filepath"]
     )
-    # Rename original photo code
-    merged_frog_id_filename = merged_frog_id_filename.rename(
-        columns={"Capture photo code": "Original Capture photo code"}
-    )
-    # Modify 'Capture photo code' using the marks and Capture # of those photos unable to be located
-    merged_frog_id_filename["Capture photo code"] = np.where(
-        merged_frog_id_filename["filepath"].isna(),
-        merged_frog_id_filename["Back left mark"]
-        .astype(str)
-        .apply(lambda x: "_" if "?" in x else x)
-        + merged_frog_id_filename["Back right mark"]
-        .astype(str)
-        .apply(lambda x: "_" if "?" in x else x)
-        + merged_frog_id_filename["Face left mark"]
-        .astype(str)
-        .apply(lambda x: "_" if "?" in x else x)
-        + merged_frog_id_filename["Face right mark"]
-        .astype(str)
-        .apply(lambda x: "_" if "?" in x else x)
-        + "-"
-        + merged_frog_id_filename["Capture #"].astype(int).astype(str),
-        merged_frog_id_filename["Original Capture photo code"],
-    )
-    # Add filename and filepath of the photos to the frog identification dataframe again
-    # with the updated 'Capture photo code'
-    logger.info(
-        "Adding filename and filepath of the photos to the frog identification dataframe again "
-        "with the updated 'Capture photo code'"
-    )
-    merged_frog_id_filename = merged_frog_id_filename.drop(
-        columns=frog_photo_file_list.columns.difference(["Capture photo code", "Grid"])
-    ).merge(frog_photo_file_list, on=["Capture photo code", "Grid"], how="left")
-    logger.info("Number of null filepaths now:")
-    logger.info(
-        merged_frog_id_filename[merged_frog_id_filename.columns.difference(["Grid"])]
-        .isnull()
-        .groupby("Grid")
-        .sum()
-        .astype(int)["filepath"]
-    )
-    # Modify 'Capture photo code' using the marks and Capture # of those photos unable to be located
-    merged_frog_id_filename["Capture photo code"] = np.where(
-        merged_frog_id_filename["filepath"].isna(),
-        merged_frog_id_filename["Back left mark"]
-        .astype(str)
-        .apply(lambda x: "0" if "?" in x else x)
-        + merged_frog_id_filename["Back right mark"]
-        .astype(str)
-        .apply(lambda x: "0" if "?" in x else x)
-        + merged_frog_id_filename["Face left mark"]
-        .astype(str)
-        .apply(lambda x: "0" if "?" in x else x)
-        + merged_frog_id_filename["Face right mark"]
-        .astype(str)
-        .apply(lambda x: "0" if "?" in x else x)
-        + "-"
-        + merged_frog_id_filename["Capture #"].astype(int).astype(str),
-        merged_frog_id_filename["Capture photo code"],
-    )
-    # Add filepath of the photos to each frog identification again with the updated 'Capture photo code'
-    merged_frog_id_filename = merged_frog_id_filename.drop(
-        columns=frog_photo_file_list.columns.difference(["Capture photo code", "Grid"])
-    ).merge(frog_photo_file_list, on=["Capture photo code", "Grid"], how="left")
-    logger.info(
-        merged_frog_id_filename[merged_frog_id_filename.columns.difference(["Grid"])]
-        .isnull()
-        .groupby(merged_frog_id_filename["Grid"])
-        .sum()
-        .astype(int)["filepath"]
-    )
-    # Modify 'Capture photo code' using the marks and Capture # of those photos unable to be located
-    merged_frog_id_filename["Capture photo code"] = np.where(
-        merged_frog_id_filename["filepath"].isna(),
-        merged_frog_id_filename["Back left mark"]
-        .astype(str)
-        .apply(lambda x: "1" if "?" in x else x)
-        + merged_frog_id_filename["Back right mark"]
-        .astype(str)
-        .apply(lambda x: "1" if "?" in x else x)
-        + merged_frog_id_filename["Face left mark"]
-        .astype(str)
-        .apply(lambda x: "1" if "?" in x else x)
-        + merged_frog_id_filename["Face right mark"]
-        .astype(str)
-        .apply(lambda x: "1" if "?" in x else x)
-        + "-"
-        + merged_frog_id_filename["Capture #"].astype(int).astype(str),
-        merged_frog_id_filename["Capture photo code"],
-    )
-    # Add filepath of the photos to each frog identification again with the updated 'Capture photo code'
-    merged_frog_id_filename = merged_frog_id_filename.drop(
-        columns=list(
-            set(list(frog_photo_file_list.columns))
-            - set(["Capture photo code", "Grid"])
+
+    # Back up original capture photo code:
+    merged_frog_id_filepath["Original capture photo code"] = merged_frog_id_filepath[
+        "Capture photo code"
+    ].copy()
+
+    # Trying to recover filepaths by changing Capture photo code
+    logger.info("Rewriting 'Capture photo code' in rows where filpath is nan.")
+
+    merged_frog_id_filepath = (
+        fill_filepath_nans_by_replacing_question_mark_in_capture_photo_code(
+            frog_photo_file_list, merged_frog_id_filepath, replacement="_"
         )
-    ).merge(frog_photo_file_list, on=["Capture photo code", "Grid"], how="left")
+    )
+
+    merged_frog_id_filepath = (
+        fill_filepath_nans_by_replacing_question_mark_in_capture_photo_code(
+            frog_photo_file_list, merged_frog_id_filepath, replacement="0"
+        )
+    )
+
+    merged_frog_id_filepath = (
+        fill_filepath_nans_by_replacing_question_mark_in_capture_photo_code(
+            frog_photo_file_list, merged_frog_id_filepath, replacement="1"
+        )
+    )
+
+    # Set aside the updated capture photo code
+    merged_frog_id_filepath = merged_frog_id_filepath.rename(
+        columns={"Capture photo code": "Updated capture photo code"}
+    )
+
+    # Restore original values where filepath remained null, otherwise take updated capture photo codes
+    merged_frog_id_filepath["Capture photo code"] = np.where(
+        merged_frog_id_filepath["filepath"].isna(),
+        merged_frog_id_filepath["Original capture photo code"],
+        merged_frog_id_filepath["Updated capture photo code"],
+    )
+
+    # Make sure there's no nans in 'Capture photo code'
+    assert bool(
+        merged_frog_id_filepath["Capture photo code"].notna().all()
+    ), "Found nans in 'Capture photo code', something went wrong."
+
+    # Log difference between old and new capture photo codes
+    same_capture_code_mask = (
+        merged_frog_id_filepath["Capture photo code"]
+        == merged_frog_id_filepath["Updated capture photo code"]
+    )
+    merged_frog_id_filepath["Different capture photo code"] = np.where(
+        same_capture_code_mask,
+        False,
+        True,
+    )
+    return merged_frog_id_filepath
+
+
+def fill_filepath_nans_by_replacing_question_mark_in_capture_photo_code(
+    frog_photo_file_list: pd.DataFrame,
+    merged_frog_id_filepath: pd.DataFrame,
+    replacement: str,
+) -> pd.DataFrame:
+    # Modify 'Capture photo code' using the marks and Capture # of those photos unable to be located
+
+    logger.info(f"Replacing '?' with '{replacement}' then re-merging.")
+
+    new_capture_photo_code = (
+        merged_frog_id_filepath["Back left mark"]
+        .astype(str)
+        .apply(lambda x: replacement if "?" in x else x)
+        + merged_frog_id_filepath["Back right mark"]
+        .astype(str)
+        .apply(lambda x: replacement if "?" in x else x)
+        + merged_frog_id_filepath["Face left mark"]
+        .astype(str)
+        .apply(lambda x: replacement if "?" in x else x)
+        + merged_frog_id_filepath["Face right mark"]
+        .astype(str)
+        .apply(lambda x: replacement if "?" in x else x)
+        + "-"
+        + merged_frog_id_filepath["Capture #"].astype(int).astype(str)
+    )
+
+    merged_frog_id_filepath["Capture photo code"] = np.where(
+        merged_frog_id_filepath["filepath"].isna(),
+        new_capture_photo_code,
+        merged_frog_id_filepath["Capture photo code"],
+    )
+
+    # Drop filename\filepath cols then re-merge over new Capture photo code and Grid
+    merged_frog_id_filepath = (
+        merged_frog_id_filepath.drop(
+            columns=frog_photo_file_list.columns.difference(
+                ["Capture photo code", "Grid"]
+            )
+        )
+        .drop_duplicates()
+        .merge(frog_photo_file_list, on=["Capture photo code", "Grid"], how="left")
+        .reset_index(drop=True)
+    )
+
+    logger.info("Current number of filepath nans by grid:")
     logger.info(
-        merged_frog_id_filename[merged_frog_id_filename.columns.difference(["Grid"])]
+        merged_frog_id_filepath[merged_frog_id_filepath.columns.difference(["Grid"])]
         .isnull()
-        .groupby(merged_frog_id_filename["Grid"])
+        .groupby(merged_frog_id_filepath["Grid"])
         .sum()
         .astype(int)["filepath"]
     )
-    merged_frog_id_filename = merged_frog_id_filename.rename(
-        columns={"Capture photo code": "updated Capture photo code"}
+    return merged_frog_id_filepath
+
+
+def find_incorrect_filepaths(
+    merged_frog_id_filepath: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Compare numbers in frog ID # to the same numbers obtained from "folder_frog_id" column:
+    <Grid>/Individual Frogs/<folder_frog_id>/<Capture photo code>.jpg
+    folder_frog_id matches number in Frog ID # format: A5, C1000 for example.
+    Rows that don't match could be a misplaced file or a bad capture photo code
+    :param merged_frog_id_filepath:
+    :return:
+    """
+    # Use regex to isolate the number in the Frog ID #
+    # Then compare the results with "folder_frog_id"
+    frog_id_num = (
+        merged_frog_id_filepath["Frog ID #"]
+        .astype("string")
+        .str.extract(r"(?P<frog_id_num>\d+)", expand=False)
     )
-    return merged_frog_id_filename
+    folder_frog_id = merged_frog_id_filepath["folder_frog_id"].astype("string")
+    merged_frog_id_filepath["do_frog_ids_match"] = frog_id_num == folder_frog_id
+
+    # Save rows where Frog ID # and folder_frog_id have different numbers
+    false_matches = merged_frog_id_filepath[
+        merged_frog_id_filepath["do_frog_ids_match"] == False
+    ]
+
+    logger.info(f"There are {len(false_matches)} rows with mismatched filepath.")
+    false_matches.to_csv("incorrect_filepaths.csv")
+
+    return merged_frog_id_filepath
 
 
 def main(frog_photo_dir: str, whareorino_excel_file: str, pukeokahu_excel_file: str):
@@ -399,99 +405,22 @@ def main(frog_photo_dir: str, whareorino_excel_file: str, pukeokahu_excel_file: 
     frog_id_df = filter_faulty_entries(frog_id_df)
 
     """Match the frog identification data to the photo file paths data"""
-    merged_frog_id_filename = frog_id_df.merge(
+    merged_frog_id_filepath = frog_id_df.merge(
         frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
-    )
+    ).reset_index(drop=True)
 
     """
     Work in progress to clean and tidy out the data
     """
-    check_duplicated_photos(merged_frog_id_filename)
-
-    merged_frog_id_filename = try_to_eliminate_filepath_nans(
-        frog_photo_file_list, merged_frog_id_filename
+    merged_frog_id_filepath = try_to_eliminate_filepath_nans(
+        frog_photo_file_list, merged_frog_id_filepath
     )
 
-    merged_frog_id_filename = merged_frog_id_filename.drop_duplicates(
-        ["Capture #", "Grid"]
-    )
-
-    new_df = frog_id_df.merge(
-        merged_frog_id_filename[["Capture #", "Grid", "updated Capture photo code"]],
-        on=["Capture #", "Grid"],
-        how="left",
-    )
-
-    # make sure if empty original values are used
-    new_df["updated Capture photo code"] = np.where(
-        new_df["updated Capture photo code"].isna(),
-        new_df["Capture photo code"],
-        new_df["updated Capture photo code"],
-    )
-
-    new_df["different Capture photo Code"] = np.where(
-        new_df["Capture photo code"] == new_df["updated Capture photo code"], 0, 1
-    )
-
-    # Closest match between the Capture photo code and filenames
-    new_df[new_df["Grid"] == "Grid A"].drop(columns=["Grid"]).to_csv(
-        "victor_reviewed_grid_a.csv"
-    )
-    new_df[new_df["Grid"] == "Grid B"].drop(columns=["Grid"]).to_csv(
-        "victor_reviewed_grid_b.csv"
-    )
-    new_df[new_df["Grid"] == "Grid C"].drop(columns=["Grid"]).to_csv(
-        "victor_reviewed_grid_c.csv"
-    )
-    new_df[new_df["Grid"] == "Grid D"].drop(columns=["Grid"]).to_csv(
-        "victor_reviewed_grid_d.csv"
-    )
-    new_df[new_df["Grid"] == "Pukeokahu Frog Monitoring"].drop(columns=["Grid"]).to_csv(
-        "victor_reviewed_pukeokahu.csv"
-    )
+    merged_frog_id_filepath = find_incorrect_filepaths(merged_frog_id_filepath)
 
     # Missing photos
-    merged_frog_id_filename[
-        (merged_frog_id_filename["Grid"] == "Grid A")
-        & (merged_frog_id_filename["filepath"].isna())
-    ].to_csv("missing_grid_a.csv")
-    merged_frog_id_filename[
-        (merged_frog_id_filename["Grid"] == "Grid B")
-        & (merged_frog_id_filename["filepath"].isna())
-    ].to_csv("missing_grid_b.csv")
-    merged_frog_id_filename[
-        (merged_frog_id_filename["Grid"] == "Grid C")
-        & (merged_frog_id_filename["filepath"].isna())
-    ].to_csv("missing_grid_c.csv")
-    merged_frog_id_filename[
-        (merged_frog_id_filename["Grid"] == "Grid D")
-        & (merged_frog_id_filename["filepath"].isna())
-    ].to_csv("missing_grid_d.csv")
-    merged_frog_id_filename[
-        (merged_frog_id_filename["Grid"] == "Pukeokahu Frog Monitoring")
-        & (merged_frog_id_filename["filepath"].isna())
-    ].to_csv("missing_pukeokahu.csv")
-
-    # Add filepath info for whareorino_df
-    whareorino_df_a_complete_df = whareorino_df["Grid A"].merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
-    )
-
-    whareorino_df_b_complete_df = whareorino_df["Grid B"].merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
-    )
-
-    whareorino_df_c_complete_df = whareorino_df["Grid C"].merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
-    )
-
-    whareorino_df_d_complete_df = whareorino_df["Grid D"].merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
-    )
-
-    # Add filepath info for pukeokahu
-    pukeokahu_complete_df = pukeokahu_df["MR Data"].merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
+    merged_frog_id_filepath[(merged_frog_id_filepath["filepath"].isna())].to_csv(
+        "missing_photos.csv"
     )
 
 
