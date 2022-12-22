@@ -1,6 +1,6 @@
 import datetime
 from os.path import join
-from typing import Dict, Tuple
+from typing import List, Tuple
 from zipfile import ZipFile
 
 import numpy as np
@@ -14,22 +14,9 @@ and match each row to it's picture in Individual Frogs dir
 """
 
 
-def open_photo_zip_files(photo_dir: str) -> Dict[str, ZipFile]:
-    # Load the five zipped files
-    zips = {
-        "whareorino_a": ZipFile(join(photo_dir, "whareorino_a.zip"), "r"),
-        "whareorino_b": ZipFile(join(photo_dir, "whareorino_b.zip"), "r"),
-        "whareorino_c": ZipFile(join(photo_dir, "whareorino_c.zip"), "r"),
-        "whareorino_d": ZipFile(join(photo_dir, "whareorino_d.zip"), "r"),
-        "pukeokahu": ZipFile(join(photo_dir, "pukeokahu.zip"), "r"),
-    }
-    # Extract the filepath of the photos of individual frogs
-    return zips
-
-
-def get_individual_frogs_photo_lists(photo_dir: str, zips: Dict[str, str]):
+def get_individual_frogs_photo_lists(photo_dir: str, zips: List[str]):
     zip_photo_lists = dict()
-    for grid_name, zip_name in zips.items():
+    for zip_name in zips:
         with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
             zip_photo_list = pd.DataFrame(
                 {
@@ -41,11 +28,11 @@ def get_individual_frogs_photo_lists(photo_dir: str, zips: Dict[str, str]):
                     ]
                 },
             )
-            zip_photo_lists[grid_name] = zip_photo_list
+            zip_photo_lists[zip_name] = zip_photo_list
     return zip_photo_lists
 
 
-def get_frog_photo_filepaths(photo_dir: str, zips: Dict[str, str]) -> pd.DataFrame:
+def get_frog_photo_filepaths(photo_dir: str, zips: List[str]) -> pd.DataFrame:
     """Load zip files that contain individual frog photo list"""
 
     zip_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
@@ -56,7 +43,7 @@ def get_frog_photo_filepaths(photo_dir: str, zips: Dict[str, str]) -> pd.DataFra
     return frog_photo_list
 
 
-def build_photo_file_list_df(photo_dir: str, zips: Dict[str, str]) -> pd.DataFrame:
+def expand_photo_file_list_df(photo_dir: str, zips: List[str]) -> pd.DataFrame:
     """
 
     :param frog_photo_list:
@@ -396,13 +383,13 @@ def find_incorrect_filepaths(
     return merged_frog_id_filepath
 
 
-def extract_photos(photo_dir: str, zips: Dict[str, str]) -> None:
+def extract_photos(photo_dir: str, zips: List[str]) -> None:
     """Extract individual frog photos to disk"""
     logger.info("Extracting individual frog photos to disk.")
     frogs_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
-    for grid_name, zip_name in tqdm(zips.items()):
+    for zip_name in tqdm(zips):
         with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
-            photo_list = frogs_photo_lists[grid_name]
+            photo_list = frogs_photo_lists[zip_name]
             zip_file.extractall(path=photo_dir, members=photo_list["filepath"])
 
 
@@ -416,7 +403,7 @@ def save_to_postgres(df: pd.DataFrame) -> None:
 
 def main(
     photo_dir: str,
-    zips: Dict[str, str],
+    zips: List[str],
     whareorino_excel_file: str,
     pukeokahu_excel_file: str,
 ):
@@ -430,7 +417,7 @@ def main(
 
     """Prepare information related to the photos"""
 
-    frog_photo_file_list = build_photo_file_list_df(photo_dir, zips)
+    frog_photo_file_list = expand_photo_file_list_df(photo_dir, zips)
 
     frog_id_df, whareorino_df, pukeokahu_df = load_excel_spreadsheets(
         pukeokahu_excel_file, whareorino_excel_file
@@ -468,13 +455,14 @@ if __name__ == "__main__":
     logger.add("parse_previous_captures.log")
 
     photo_dir = "/Users/lioruzan/Downloads/frog_photos"
-    zip_names = dict(
-        whareorino_a="whareorino_a.zip",
-        whareorino_b="whareorino_b.zip",
-        whareorino_c="whareorino_c.zip",
-        whareorino_d="whareorino_d.zip",
-        pukeokahu="pukeokahu.zip",
-    )
+    zip_names = [
+        "whareorino_a.zip",
+        "whareorino_b.zip",
+        "whareorino_c.zip",
+        "whareorino_d.zip",
+        "pukeokahu.zip",
+    ]
+
     whareorino_excel_file = "/Users/lioruzan/Downloads/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
     pukeokahu_excel_file = "/Users/lioruzan/Downloads/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
     main(photo_dir, zip_names, whareorino_excel_file, pukeokahu_excel_file)
