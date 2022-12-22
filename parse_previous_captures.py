@@ -1,78 +1,86 @@
 import datetime
-import os
-import zipfile
-from typing import Tuple
+from os.path import join
+from typing import Dict, Tuple
+from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
 from loguru import logger
+from tqdm import tqdm
+
+"""
+The whole point of this file is to parse old frog sightings (before 2020) 
+and match each row to it's picture in Individual Frogs dir
+"""
 
 
-def get_frog_picture_filepaths(frog_photo_dir: str) -> pd.DataFrame:
-    """Load zip files"""
+def open_photo_zip_files(photo_dir: str) -> Dict[str, ZipFile]:
     # Load the five zipped files
-    whareorino_a = zipfile.ZipFile(
-        os.path.join(frog_photo_dir, "whareorino_a.zip"), "r"
-    )
-    whareorino_b = zipfile.ZipFile(
-        os.path.join(frog_photo_dir, "whareorino_b.zip"), "r"
-    )
-    whareorino_c = zipfile.ZipFile(
-        os.path.join(frog_photo_dir, "whareorino_c.zip"), "r"
-    )
-    whareorino_d = zipfile.ZipFile(
-        os.path.join(frog_photo_dir, "whareorino_d.zip"), "r"
-    )
-    pukeokahu = zipfile.ZipFile(os.path.join(frog_photo_dir, "pukeokahu.zip"), "r")
-
+    zips = {
+        "whareorino_a": ZipFile(join(photo_dir, "whareorino_a.zip"), "r"),
+        "whareorino_b": ZipFile(join(photo_dir, "whareorino_b.zip"), "r"),
+        "whareorino_c": ZipFile(join(photo_dir, "whareorino_c.zip"), "r"),
+        "whareorino_d": ZipFile(join(photo_dir, "whareorino_d.zip"), "r"),
+        "pukeokahu": ZipFile(join(photo_dir, "pukeokahu.zip"), "r"),
+    }
     # Extract the filepath of the photos of individual frogs
-    zips = [whareorino_a, whareorino_b, whareorino_c, whareorino_d, pukeokahu]
-    pd_list = []
+    return zips
 
-    for zip_file in zips:
-        zip_pd = pd.DataFrame(
-            [
-                x
-                for x in zip_file.namelist()
-                if "Individual Frogs" in x and not x.endswith((".db", "/", "Store"))
-            ]
-        )
-        pd_list.append(zip_pd)
+
+def get_individual_frogs_photo_lists(photo_dir: str, zips: Dict[str, str]):
+    zip_photo_lists = dict()
+    for grid_name, zip_name in zips.items():
+        with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
+            zip_photo_list = pd.DataFrame(
+                {
+                    "filepath": [
+                        x
+                        for x in zip_file.namelist()
+                        if "Individual Frogs" in x
+                        and not x.endswith((".db", "/", "Store"))
+                    ]
+                },
+            )
+            zip_photo_lists[grid_name] = zip_photo_list
+    return zip_photo_lists
+
+
+def get_frog_photo_filepaths(photo_dir: str, zips: Dict[str, str]) -> pd.DataFrame:
+    """Load zip files that contain individual frog photo list"""
+
+    zip_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
 
     # Combine the file paths of the five grids into a single data frame
-    frog_photo_file_list = pd.concat(pd_list).reset_index(drop=True)
+    frog_photo_list = pd.concat(zip_photo_lists.values()).reset_index(drop=True)
 
-    # Rename the column of df
-    frog_photo_file_list = frog_photo_file_list.rename(columns={0: "filepath"})
-
-    return frog_photo_file_list
+    return frog_photo_list
 
 
-def build_photo_file_list_df(frog_photo_dir: str) -> pd.DataFrame:
+def build_photo_file_list_df(photo_dir: str, zips: Dict[str, str]) -> pd.DataFrame:
     """
 
-    :param frog_photo_file_list:
+    :param frog_photo_list:
     :return:
     """
-    frog_photo_file_list = get_frog_picture_filepaths(frog_photo_dir)
+    frog_photo_list = get_frog_photo_filepaths(photo_dir, zips)
 
     # Add new columns using directory and filename information
-    expanded_path = frog_photo_file_list["filepath"].str.split("/", n=4, expand=True)
+    expanded_path = frog_photo_list["filepath"].str.split("/", n=4, expand=True)
 
     # Add the grid, filename, and capture cols
-    frog_photo_file_list["Grid"] = expanded_path[0]
+    frog_photo_list["Grid"] = expanded_path[0]
 
-    frog_photo_file_list["folder_frog_id"] = expanded_path[2]
+    frog_photo_list["folder_frog_id"] = expanded_path[2]
 
-    frog_photo_file_list["filename"] = expanded_path[3]
+    frog_photo_list["filename"] = expanded_path[3]
 
-    frog_photo_file_list["Capture photo code"] = frog_photo_file_list[
-        "filename"
-    ].str.split(".", n=1, expand=True)[0]
+    frog_photo_list["Capture photo code"] = frog_photo_list["filename"].str.split(
+        ".", n=1, expand=True
+    )[0]
 
     # Derive Capture # from file names
-    # frog_photo_file_list["capture"] = (
-    #     frog_photo_file_list["filename"]
+    # frog_photo_list["capture"] = (
+    #     frog_photo_list["filename"]
     #     .str.split(".", n=1, expand=True)[0]  # get photo file basename
     #     .str.replace(
     #         "_", "-"
@@ -83,9 +91,9 @@ def build_photo_file_list_df(frog_photo_dir: str) -> pd.DataFrame:
     # )
 
     # Manually filter out non-standard photos
-    # frog_photo_file_list = frog_photo_file_list[~frog_photo_file_list['filename'].str.contains(("Picture|IMG|#"))]
+    # frog_photo_list = frog_photo_list[~frog_photo_list['filename'].str.contains(("Picture|IMG|#"))]
 
-    return frog_photo_file_list
+    return frog_photo_list
 
 
 def load_excel_spreadsheets(
@@ -291,6 +299,13 @@ def try_to_eliminate_filepath_nans(
         False,
         True,
     )
+
+    missing_filepaths = merged_frog_id_filepath["filepath"].isna()
+    logger.info(f"Total number of missing filepaths: {sum(missing_filepaths)}")
+
+    # Save the list of rows with missing photos
+    merged_frog_id_filepath[missing_filepaths].to_csv("missing_photos.csv")
+
     return merged_frog_id_filepath
 
 
@@ -338,7 +353,7 @@ def fill_filepath_nans_by_replacing_question_mark_in_capture_photo_code(
         .reset_index(drop=True)
     )
 
-    logger.info("Current number of filepath nans by grid:")
+    logger.info("Current number of missing filepath by grid:")
     logger.info(
         merged_frog_id_filepath[merged_frog_id_filepath.columns.difference(["Grid"])]
         .isnull()
@@ -381,10 +396,33 @@ def find_incorrect_filepaths(
     return merged_frog_id_filepath
 
 
-def main(frog_photo_dir: str, whareorino_excel_file: str, pukeokahu_excel_file: str):
+def extract_photos(photo_dir: str, zips: Dict[str, str]) -> None:
+    """Extract individual frog photos to disk"""
+    logger.info("Extracting individual frog photos to disk.")
+    frogs_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
+    for grid_name, zip_name in tqdm(zips.items()):
+        with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
+            photo_list = frogs_photo_lists[grid_name]
+            zip_file.extractall(path=photo_dir, members=photo_list["filepath"])
+
+
+def save_photos_to_lmdb(df: pd.DataFrame) -> pd.DataFrame:
+    pass
+
+
+def save_to_postgres(df: pd.DataFrame) -> None:
+    pass
+
+
+def main(
+    photo_dir: str,
+    zips: Dict[str, str],
+    whareorino_excel_file: str,
+    pukeokahu_excel_file: str,
+):
     """
 
-    :param frog_photo_dir:
+    :param photo_dir:
     :param whareorino_excel_file:
     :param pukeokahu_excel_file:
     :return:
@@ -392,7 +430,7 @@ def main(frog_photo_dir: str, whareorino_excel_file: str, pukeokahu_excel_file: 
 
     """Prepare information related to the photos"""
 
-    frog_photo_file_list = build_photo_file_list_df(frog_photo_dir)
+    frog_photo_file_list = build_photo_file_list_df(photo_dir, zips)
 
     frog_id_df, whareorino_df, pukeokahu_df = load_excel_spreadsheets(
         pukeokahu_excel_file, whareorino_excel_file
@@ -418,17 +456,25 @@ def main(frog_photo_dir: str, whareorino_excel_file: str, pukeokahu_excel_file: 
 
     merged_frog_id_filepath = find_incorrect_filepaths(merged_frog_id_filepath)
 
-    # Missing photos
-    merged_frog_id_filepath[(merged_frog_id_filepath["filepath"].isna())].to_csv(
-        "missing_photos.csv"
-    )
+    extract_photos(photo_dir, zips)
+
+    # save_photos_to_lmdb()
+
+    # save_to_postgres()
 
 
 if __name__ == "__main__":
     # Log to disk
     logger.add("parse_previous_captures.log")
 
-    frog_photo_dir = "/Users/lioruzan/Downloads/frog_photos"
+    photo_dir = "/Users/lioruzan/Downloads/frog_photos"
+    zip_names = dict(
+        whareorino_a="whareorino_a.zip",
+        whareorino_b="whareorino_b.zip",
+        whareorino_c="whareorino_c.zip",
+        whareorino_d="whareorino_d.zip",
+        pukeokahu="pukeokahu.zip",
+    )
     whareorino_excel_file = "/Users/lioruzan/Downloads/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
     pukeokahu_excel_file = "/Users/lioruzan/Downloads/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
-    main(frog_photo_dir, whareorino_excel_file, pukeokahu_excel_file)
+    main(photo_dir, zip_names, whareorino_excel_file, pukeokahu_excel_file)
