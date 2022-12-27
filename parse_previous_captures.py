@@ -1,12 +1,16 @@
 import datetime
-from os.path import join
+import io
+from os.path import dirname, join
 from typing import List, Tuple
 from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
+import sqlalchemy as db
 from loguru import logger
 from tqdm import tqdm
+
+from lmdb_classes import ImageRecord, LmdbWriter
 
 """
 The whole point of this file is to parse old frog sightings (before 2020) 
@@ -14,8 +18,9 @@ and match each row to it's picture in Individual Frogs dir
 """
 
 
-def get_individual_frogs_photo_lists(photo_dir: str, zips: List[str]):
-    zip_photo_lists = dict()
+def get_frog_photo_filepaths(photo_dir: str, zips: List[str]) -> pd.DataFrame:
+    """Load zip files that contain individual frog photo list"""
+    zip_photo_lists = []
     for zip_name in zips:
         with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
             zip_photo_list = pd.DataFrame(
@@ -25,20 +30,13 @@ def get_individual_frogs_photo_lists(photo_dir: str, zips: List[str]):
                         for x in zip_file.namelist()
                         if "Individual Frogs" in x
                         and not x.endswith((".db", "/", "Store"))
-                    ]
+                    ],
+                    "zip_source": zip_name,
                 },
             )
-            zip_photo_lists[zip_name] = zip_photo_list
-    return zip_photo_lists
-
-
-def get_frog_photo_filepaths(photo_dir: str, zips: List[str]) -> pd.DataFrame:
-    """Load zip files that contain individual frog photo list"""
-
-    zip_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
-
+            zip_photo_lists.append(zip_photo_list)
     # Combine the file paths of the five grids into a single data frame
-    frog_photo_list = pd.concat(zip_photo_lists.values()).reset_index(drop=True)
+    frog_photo_list = pd.concat(zip_photo_lists).reset_index(drop=True)
 
     return frog_photo_list
 
@@ -59,26 +57,9 @@ def expand_photo_file_list_df(photo_dir: str, zips: List[str]) -> pd.DataFrame:
 
     frog_photo_list["folder_frog_id"] = expanded_path[2]
 
-    frog_photo_list["filename"] = expanded_path[3]
-
-    frog_photo_list["Capture photo code"] = frog_photo_list["filename"].str.split(
+    frog_photo_list["Capture photo code"] = expanded_path[3].str.split(
         ".", n=1, expand=True
     )[0]
-
-    # Derive Capture # from file names
-    # frog_photo_list["capture"] = (
-    #     frog_photo_list["filename"]
-    #     .str.split(".", n=1, expand=True)[0]  # get photo file basename
-    #     .str.replace(
-    #         "_", "-"
-    #     )  # replace the underscores with dashes to get like 0101-738 and take right number
-    #     .str.rsplit("-", n=1, expand=True)[
-    #         1
-    #     ]  # take the rightmost number before the dash, that's the capture id
-    # )
-
-    # Manually filter out non-standard photos
-    # frog_photo_list = frog_photo_list[~frog_photo_list['filename'].str.contains(("Picture|IMG|#"))]
 
     return frog_photo_list
 
@@ -383,22 +364,47 @@ def find_incorrect_filepaths(
     return merged_frog_id_filepath
 
 
-def extract_photos(photo_dir: str, zips: List[str]) -> None:
-    """Extract individual frog photos to disk"""
-    logger.info("Extracting individual frog photos to disk.")
-    frogs_photo_lists = get_individual_frogs_photo_lists(photo_dir, zips)
-    for zip_name in tqdm(zips):
-        with ZipFile(join(photo_dir, zip_name), mode="r") as zip_file:
-            photo_list = frogs_photo_lists[zip_name]
-            zip_file.extractall(path=photo_dir, members=photo_list["filepath"])
+def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
+    """
+    Save photos straight from zip to lmdb
+    :param df:
+    :param zip_path: basedir of zip files (beside this folder the lmdb dir will be created)
+    :return:
+    """
+
+    def write_photo(row: pd.Series) -> None:
+        if pd.isna(row["lmdb_key"]):
+            return
+
+        with ZipFile(join(zip_path, row["zip_source"]), mode="r") as zip_file:
+            record = ImageRecord(io.BytesIO(zip_file.read(row["filepath"])))
+            writer.add_record(row["lmdb_key"], record)
+
+    # Set lmdb key to be the index as byte string in the format b"000000012" if filepath exists, nan otherwise
+    df["lmdb_key"] = df.index.to_series().apply(lambda ix: f"{ix:09}".encode())
+    df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), df["filepath"])
+
+    # Write photos to lmdb sequentially
+    lmdb_path = join(dirname(zip_path), "photo_lmdb")
+    with LmdbWriter(output_path=lmdb_path) as writer:
+        df.progress_apply(write_photo, axis="columns")
+
+    return df
 
 
-def save_photos_to_lmdb(df: pd.DataFrame) -> pd.DataFrame:
-    pass
+def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
+    """Save all frog information up until now to the local PostgreSQL server"""
+    engine = db.create_engine(sql_server_string)
 
+    with engine.connect() as con:
+        df.to_sql("frogs", con, if_exists="replace", index=False)
 
-def save_to_postgres(df: pd.DataFrame) -> None:
-    pass
+    # metadata = db.MetaData()
+    # frogs = db.Table("frogs", metadata, autoload=True, autoload_with=engine)
+    # with engine.connect() as con:
+    #     results = con.execute(db.select([frogs])).fetchall()
+
+    engine.dispose()
 
 
 def main(
@@ -406,12 +412,15 @@ def main(
     zips: List[str],
     whareorino_excel_file: str,
     pukeokahu_excel_file: str,
+    sql_server_string: str,
 ):
     """
 
     :param photo_dir:
+    :param zips:
     :param whareorino_excel_file:
     :param pukeokahu_excel_file:
+    :param sql_server_string:
     :return:
     """
 
@@ -443,14 +452,15 @@ def main(
 
     merged_frog_id_filepath = find_incorrect_filepaths(merged_frog_id_filepath)
 
-    extract_photos(photo_dir, zips)
+    merged_frog_id_filepath = save_photos_to_lmdb(merged_frog_id_filepath, photo_dir)
 
-    # save_photos_to_lmdb()
-
-    # save_to_postgres()
+    save_to_postgres(merged_frog_id_filepath, sql_server_string)
 
 
 if __name__ == "__main__":
+    # Create .progress_apply() in pandas
+    tqdm.pandas()
+
     # Log to disk
     logger.add("parse_previous_captures.log")
 
@@ -465,4 +475,12 @@ if __name__ == "__main__":
 
     whareorino_excel_file = "/Users/lioruzan/Downloads/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
     pukeokahu_excel_file = "/Users/lioruzan/Downloads/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
-    main(photo_dir, zip_names, whareorino_excel_file, pukeokahu_excel_file)
+
+    sql_server_string = "postgresql://lioruzan:nyudEce5@localhost/frogs"
+    main(
+        photo_dir,
+        zip_names,
+        whareorino_excel_file,
+        pukeokahu_excel_file,
+        sql_server_string,
+    )

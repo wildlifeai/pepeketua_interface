@@ -6,3 +6,4 @@ lmdb
 sqlalchemy
 psycopg2
 xlrd
+tqdm
