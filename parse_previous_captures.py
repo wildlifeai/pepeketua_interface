@@ -382,7 +382,7 @@ def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
 
     # Set lmdb key to be the index as byte string in the format b"000000012" if filepath exists, nan otherwise
     df["lmdb_key"] = df.index.to_series().apply(lambda ix: f"{ix:09}".encode())
-    df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), df["filepath"])
+    df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), np.nan)
 
     # Write photos to lmdb sequentially
     lmdb_path = join(dirname(zip_path), "photo_lmdb")
@@ -398,11 +398,6 @@ def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
 
     with engine.connect() as con:
         df.to_sql("frogs", con, if_exists="replace", index=False)
-
-    # metadata = db.MetaData()
-    # frogs = db.Table("frogs", metadata, autoload=True, autoload_with=engine)
-    # with engine.connect() as con:
-    #     results = con.execute(db.select([frogs])).fetchall()
 
     engine.dispose()
 
