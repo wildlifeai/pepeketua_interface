@@ -1,5 +1,6 @@
 import datetime
 import io
+from argparse import ArgumentParser
 from os.path import dirname, join
 from typing import List, Tuple
 from zipfile import ZipFile
@@ -459,7 +460,7 @@ if __name__ == "__main__":
     # Log to disk
     logger.add("parse_previous_captures.log")
 
-    photo_dir = "/Users/lioruzan/Downloads/frog_photos"
+    photo_dir = "pepeketua_id/frog_photos"
     zip_names = [
         "whareorino_a.zip",
         "whareorino_b.zip",
@@ -468,14 +469,19 @@ if __name__ == "__main__":
         "pukeokahu.zip",
     ]
 
-    whareorino_excel_file = "/Users/lioruzan/Downloads/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
-    pukeokahu_excel_file = "/Users/lioruzan/Downloads/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
+    whareorino_excel_file = "pepeketua_id/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
+    pukeokahu_excel_file = (
+        "pepeketua_id/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
+    )
 
-    sql_server_string = "postgresql://lioruzan:nyudEce5@localhost/frogs"
+    parser = ArgumentParser()
+    parser.add_argument("sql_server_string")
+    args = parser.parse_args()
+
     main(
         photo_dir,
         zip_names,
         whareorino_excel_file,
         pukeokahu_excel_file,
-        sql_server_string,
+        args.sql_server_string,
     )

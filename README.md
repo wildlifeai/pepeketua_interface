@@ -31,10 +31,14 @@ TBC
 2. Place the two excel sheets in that folder.
 3. Create the subdirectory `pepeketua_id/frog_photos`
 4. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in the directory `pepeketua_id/frog_photos`
-5. Execute the docker with the arguments `pepeketua_id/<whareorino excel file> pepeketua_id/<pukeokahu excel file> pepeketua_id/frog_photos`
+5. Start a local Postgresql server with table `frogs`
+6. Execute `python parse_previous_captures.py <sql_server_string>` where `sql_server_string` is in the format `postgresql://<user>:<pass>@localhost/frogs`
 
-## Output
-The output of the init scripts will save some csv files to the shared folder:
+## Result
+The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures to a LMDB server.
+
+The script will save some csv files to the shared folder:
+- `parse_previous_captures.log`: Log file for script outputs
 - `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
 - `missing_photos.csv`: All rows that have no "filepath" column value.
 
