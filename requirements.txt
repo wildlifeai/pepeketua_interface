@@ -1,9 +1,15 @@
 streamlit
 pandas
 numpy
+Pillow
+opencv-python
 loguru
 lmdb
 sqlalchemy
 psycopg2
 xlrd
 tqdm
+imgaug
+tensorflow-cpu
+tensorflow-addons
+argparse
