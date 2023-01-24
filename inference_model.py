@@ -12,7 +12,12 @@ from rotation_landmark_model.landmark_generator import LandMarkDataGenerator
 from rotation_landmark_model.utilities import (
     debug_landmark_labels,
     fix_prediction_order,
+    ORDERED_LANDMARK_UNNAMED_COLS,
     positive_deg_theta,
+)
+from utilities.utilities import (
+    IMAGE_SIZE,
+    ROT_IMAGE_SIZE,
 )
 
 
@@ -34,14 +39,13 @@ class InferenceModel:
         :return:
         """
         embs = []
-        for _, row in image_df.iterrows():
-            with Image.open(BytesIO(row["image_path"])) as im:
+        for row in image_df.to_dict("records"):
+            with Image.open(BytesIO(row["image_bytes"])) as im:
                 im_tf = preprocess_im(im, landmarks=row)
             im_embs = self.identity_model(im_tf)
             embs.append(im_embs.numpy()[0])
 
-        embs_arr = np.array(embs)
-        return embs_arr
+        return embs
 
     def predict(self, image_df: pd.DataFrame) -> np.array:
         """
@@ -57,14 +61,14 @@ class InferenceModel:
         batch_size = len(image_df)
         gpred_rot = LandMarkDataGenerator(
             dataframe=image_df,
-            x_col="image_path",
+            x_col="image_bytes",
             y_col=["width_size", "height_size"],
             color_mode="rgb",
-            target_size=landmark_variables.ROT_IMAGE_SIZE,
+            target_size=ROT_IMAGE_SIZE,
             batch_size=batch_size,
             training=False,
             resize_points=True,
-            height_first=False,
+            specific_rotations=False,
         )
 
         logger.info("Predicting rotation")
@@ -76,25 +80,22 @@ class InferenceModel:
 
         gpred = LandMarkDataGenerator(
             dataframe=image_df,
-            x_col="image_path",
+            x_col="image_bytes",
             y_col=["width_size", "height_size", "rotation"],
             color_mode="rgb",
-            target_size=landmark_variables.IMAGE_SIZE,
+            target_size=IMAGE_SIZE,
             batch_size=batch_size,
             training=False,
             resize_points=True,
-            height_first=False,
             specific_rotations=True,
         )
 
         logger.info("Predicting")
         prediction = self.landmark_model.predict(gpred)
         prediction = fix_prediction_order(prediction)
-
-        # Test predictions
         pred_df = pd.concat(
             [
-                image_df.image_path,
+                image_df.image_bytes,
                 pd.DataFrame(prediction),
                 image_df.width_size,
                 image_df.height_size,
@@ -105,20 +106,23 @@ class InferenceModel:
 
         # resize predictions to original image size
         pred_original_size = gpred.create_final_labels(
-            pred_df[pred_df.columns.to_list()[1:]]
+            pred_df[ORDERED_LANDMARK_UNNAMED_COLS]
         )
-        # name all predictions
-        pred_df[pred_df.columns.to_list()[1:-3]] = pred_original_size
-        labels_column_names = pred_df.columns.to_list()[1:-3]
+
+        # restore landmarks to original image size
+        pred_df[ORDERED_LANDMARK_UNNAMED_COLS[:-3]] = pred_original_size
 
         # save original images with keypoints on them for debugging purposes
         debug_images = False
         if debug_images:
-            debug_landmark_labels(pred_df, labels_column_names)
+            debug_landmark_labels(pred_df, ORDERED_LANDMARK_UNNAMED_COLS[:-3])
 
-        logger.info("Renaming columns to their full landmark names")
+        # Renaming columns to their full landmark names
         pred_df.rename(columns=landmark_variables.change_column_name_dict, inplace=True)
 
-        """Start identity vector prediction"""
-        identity_vectors = self.get_embeddings(pred_df)
-        return identity_vectors
+        # Identity vector prediction
+        identity_embeddings = self.get_embeddings(pred_df)
+        pred_df.drop(columns="image_bytes", inplace=True)
+        pred_df.loc[:, "embedding"] = identity_embeddings
+
+        return pred_df

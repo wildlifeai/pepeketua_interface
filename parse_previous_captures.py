@@ -1,7 +1,6 @@
 import datetime
 import io
-from argparse import ArgumentParser
-from os.path import dirname, join
+from os.path import join
 from typing import List, Tuple
 from zipfile import ZipFile
 
@@ -11,7 +10,15 @@ import sqlalchemy as db
 from loguru import logger
 from tqdm import tqdm
 
-from lmdb_classes import ImageRecord, LmdbWriter
+from utilities.lmdb_classes import ImageRecord, LmdbWriter
+from utilities.utilities import (
+    LMDB_PATH,
+    PHOTO_PATH,
+    PUKEOKAHU_EXCEL_FILE,
+    SQL_SERVER_STRING,
+    WHAREORINO_EXCEL_FILE,
+    ZIP_NAMES,
+)
 
 """
 The whole point of this file is to parse old frog sightings (before 2020) 
@@ -45,7 +52,8 @@ def get_frog_photo_filepaths(photo_dir: str, zips: List[str]) -> pd.DataFrame:
 def expand_photo_file_list_df(photo_dir: str, zips: List[str]) -> pd.DataFrame:
     """
 
-    :param frog_photo_list:
+    :param photo_dir:
+    :param zips:
     :return:
     """
     frog_photo_list = get_frog_photo_filepaths(photo_dir, zips)
@@ -386,8 +394,7 @@ def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), np.nan)
 
     # Write photos to lmdb sequentially
-    lmdb_path = join(dirname(zip_path), "photo_lmdb")
-    with LmdbWriter(output_path=lmdb_path) as writer:
+    with LmdbWriter(output_path=LMDB_PATH) as writer:
         df.progress_apply(write_photo, axis="columns")
 
     return df
@@ -460,28 +467,10 @@ if __name__ == "__main__":
     # Log to disk
     logger.add("parse_previous_captures.log")
 
-    photo_dir = "pepeketua_id/frog_photos"
-    zip_names = [
-        "whareorino_a.zip",
-        "whareorino_b.zip",
-        "whareorino_c.zip",
-        "whareorino_d.zip",
-        "pukeokahu.zip",
-    ]
-
-    whareorino_excel_file = "pepeketua_id/Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls"
-    pukeokahu_excel_file = (
-        "pepeketua_id/Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
-    )
-
-    parser = ArgumentParser()
-    parser.add_argument("sql_server_string")
-    args = parser.parse_args()
-
     main(
-        photo_dir,
-        zip_names,
-        whareorino_excel_file,
-        pukeokahu_excel_file,
-        args.sql_server_string,
+        PHOTO_PATH,
+        ZIP_NAMES,
+        WHAREORINO_EXCEL_FILE,
+        PUKEOKAHU_EXCEL_FILE,
+        SQL_SERVER_STRING,
     )

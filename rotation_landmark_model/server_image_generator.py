@@ -78,7 +78,6 @@ class ServerFlowIterator:
             batch_x[i] = image_arr
 
         batch_y = self.labels[index_array]
-
         return batch_x, batch_y
 
     def reset(self):

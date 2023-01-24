@@ -47,12 +47,16 @@ class LmdbReader(object):
         return self.read_image_record(key).get_image()
 
     def read_image_record(self, key: bytes) -> ImageRecord:
+        buffer = self.read_bytes(key)
+        return ImageRecord.deserialize(buffer)
+
+    def read_bytes(self, key: bytes) -> bytes:
         with self.environment.begin(write=False) as txn:
             buffer = txn.get(key)
             assert (
                 buffer is not None
-            ), f"The following record was not found in the LMDB: {key}"
-            return ImageRecord.deserialize(buffer)
+            ), f"The following record was not found in the LMDB: {key.decode()}"
+            return buffer
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.environment.close()

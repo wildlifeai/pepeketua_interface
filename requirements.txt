@@ -13,3 +13,4 @@ imgaug
 tensorflow-cpu
 tensorflow-addons
 argparse
+h5py

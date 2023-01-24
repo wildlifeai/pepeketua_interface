@@ -1,24 +1,65 @@
-from loguru import logger
+import sqlalchemy as db
+from sqlalchemy import create_engine
 
 from inference_model import InferenceModel
-from rotation_landmark_model.utilities import get_image_path, get_server_image_df
+from utilities import utilities
+
+# Suppress TensorFlow warnings
+from utilities.utilities import (
+    IDENTIFY_MODEL,
+    LANDMARK_MODEL,
+    prepare_batch,
+    ROTATION_MODEL,
+    SQL_SERVER_STRING,
+)
 
 
-def main(rotation_model: str, landmark_model: str, identify_model: str, image_dir: str):
+def main(
+    rotation_model: str,
+    landmark_model: str,
+    identify_model: str,
+    sql_server_string: str,
+):
     inference_model = InferenceModel(rotation_model, landmark_model, identify_model)
-    image_paths = get_image_path(image_dir)
-    image_df = get_server_image_df(image_paths)
-    results = inference_model.predict(image_df)
-    logger.info(str(results))
+
+    engine = create_engine(sql_server_string)
+    metadata = db.MetaData()
+    with engine.connect() as connection:
+        frogs = db.Table("frogs", metadata, autoload=True, autoload_with=connection)
+        query = db.select([frogs])
+        cursor_result = connection.execute(query)
+        result_generator = cursor_result.partitions(size=utilities.BATCH_SIZE)
+
+    for result_batch in result_generator:
+        batch_df = prepare_batch(result_batch)
+        results = inference_model.predict(batch_df)
+
+    # Close db cursor after iteration ends
+    cursor_result.close()
 
 
 if __name__ == "__main__":
-    landmark_model = (
-        "/Users/lioruzan/PycharmProjects/pepeketua_landmarks/model/landmark_model_714"
-    )
-    rotation_model = "/Users/lioruzan/PycharmProjects/pepeketua_landmarks/model/rotation_model_weights_10"
-    identify_model = "/Users/lioruzan/PycharmProjects/pepeketua_identify/experiments/11062021_130149_cropped/ep29_vloss0.0249931520129752_emb.ckpt"
-    image_dir = (
-        "/Users/lioruzan/PycharmProjects/pepeketua_landmarks/images/frog_examples"
-    )
-    main(rotation_model, landmark_model, identify_model, image_dir)
+    main(ROTATION_MODEL, LANDMARK_MODEL, IDENTIFY_MODEL, SQL_SERVER_STRING)
+
+    """
+    import numpy as np
+    import faiss
+    
+    # Create a random matrix of vectors to be indexed
+    x = np.random.rand(100, 64).astype('float32')
+    
+    # Create an index
+    index = faiss.IndexFlatL2(64) # 64 is the dimension of the vectors
+    
+    # Add the vectors to the index
+    index.add(x)
+    
+    # Perform a search for nearest neighbors
+    k = 10 # number of nearest neighbors to return
+    query = np.random.rand(1, 64).astype('float32')
+    D, I = index.search(query, k)
+    
+    # D is a matrix of distances
+    # I is a matrix of indices of the nearest neighbors
+    print(I)
+    """

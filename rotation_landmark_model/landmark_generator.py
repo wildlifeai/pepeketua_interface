@@ -1,9 +1,13 @@
+from typing import Tuple
+
 import imgaug.augmenters as iaa
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from imgaug import Keypoint
 
 from rotation_landmark_model.server_image_generator import ServerImageDataGenerator
+from rotation_landmark_model.utilities import ORDERED_LANDMARK_UNNAMED_COLS
 
 
 class LandMarkDataGenerator(tf.keras.utils.Sequence):
@@ -28,7 +32,6 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
         multiply_per_channel=0,
         rescale=1 / 255,
         resize_points=False,
-        height_first=True,
         training=False,
         normalize_y=False,
         preprocessing_function=None,
@@ -54,8 +57,6 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
 
         resize_points: If to resize labels to new target size, used if points are not
                        rescaled before hand, default False
-
-        height_first: If using resize the df last two image size column struct is height,width, default True
 
         training: Determines if to return new label values or only images, used for training or evaluating model
                   should be True for training, validating and test but should be False for prediction.
@@ -103,7 +104,6 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
         self.df = dataframe
         self.training = training
         self.resize_points = resize_points
-        self.height_first = height_first
         self.normalize_y = normalize_y
         self.preprocessing_function = preprocessing_function
         self.specific_rotations = specific_rotations
@@ -179,7 +179,7 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
 
         return images
 
-    def create_final_labels(self, labels):
+    def create_final_labels(self, labels: pd.DataFrame):
         # Resizes labels to original image size
         labels, image_size, rotations = self._fix_labels_get_image_size(labels)
         image_height, image_width = self._get_image_sizes_for_vectorizations(image_size)
@@ -187,9 +187,10 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
             labels[:, :, 0], labels[:, :, 1], image_height, image_width
         )
 
-        if self.specific_rotations:
-            images = self._create_fake_images(image_height, image_width)
-            images, kps = self.rotate_images_specifically(-rotations, images, kps=kps)
+        # imgaug Affine and Keypoint objects are used to rotate keypoints
+        # This requires some fake images
+        images = self._create_fake_images(image_height, image_width)
+        images, kps = self.rotate_images_specifically(-rotations, images, kps=kps)
 
         points = np.array(kps)
 
@@ -202,28 +203,25 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
 
         return labels
 
-    def _fix_labels_get_image_size(self, labels):
+    def _fix_labels_get_image_size(self, labels: pd.DataFrame) -> Tuple:
         rotations = np.array([])
-        labels = np.array(labels)
 
         if self.specific_rotations:
-            rotations = labels[:, -1:]
-            labels = labels[:, :-1]
+            rotations = labels["rotation"].to_numpy().reshape((len(labels), 1))
+            labels = labels[ORDERED_LANDMARK_UNNAMED_COLS[:-1]]
 
+        image_size = labels[["width_size", "height_size"]].to_numpy()
+        labels = labels[ORDERED_LANDMARK_UNNAMED_COLS[:-3]].to_numpy()
         labels = np.reshape(labels, (labels.shape[0], int(labels.shape[1] / 2), 2))
-
-        image_size = labels[:, -1]
-        labels = labels[:, :-1]
 
         return labels, image_size, rotations
 
-    def _get_image_sizes_for_vectorizations(self, image_size):
-        height_index = 0 if self.height_first else 1
-        width_index = 1 - height_index
-
-        image_height = image_size[:, height_index]
+    def _get_image_sizes_for_vectorizations(
+        self, image_size: np.array
+    ) -> Tuple[np.array, np.array]:
+        image_height = image_size[:, 1]
         image_height = np.reshape(image_height, (image_height.shape[0], 1))
-        image_width = image_size[:, width_index]
+        image_width = image_size[:, 0]
         image_width = np.reshape(image_width, (image_width.shape[0], 1))
         return image_height, image_width
 
@@ -285,6 +283,7 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
 
         if kps is not None:
             return images, kps
+
         return images
 
     def __len__(self):
