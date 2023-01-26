@@ -1,7 +1,6 @@
 import datetime
-import io
 from os.path import join
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from zipfile import ZipFile
 
 import numpy as np
@@ -10,7 +9,7 @@ import sqlalchemy as db
 from loguru import logger
 from tqdm import tqdm
 
-from utilities.lmdb_classes import ImageRecord, LmdbWriter
+from utilities.lmdb_classes import LmdbWriter
 from utilities.utilities import (
     LMDB_PATH,
     PHOTO_PATH,
@@ -381,21 +380,21 @@ def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     :return:
     """
 
-    def write_photo(row: pd.Series) -> None:
+    def write_photo(row: Dict) -> None:
         if pd.isna(row["lmdb_key"]):
             return
-
         with ZipFile(join(zip_path, row["zip_source"]), mode="r") as zip_file:
-            record = ImageRecord(io.BytesIO(zip_file.read(row["filepath"])))
-            writer.add_record(row["lmdb_key"], record)
+            writer.add(row["lmdb_key"].encode(), zip_file.read(row["filepath"]))
 
     # Set lmdb key to be the index as byte string in the format b"000000012" if filepath exists, nan otherwise
-    df["lmdb_key"] = df.index.to_series().apply(lambda ix: f"{ix:09}".encode())
+    df["lmdb_key"] = df.index.to_series().apply(lambda ix: f"{ix:09}")
     df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), np.nan)
 
     # Write photos to lmdb sequentially
+    logger.info("Writing photos to lmdb.")
     with LmdbWriter(output_path=LMDB_PATH) as writer:
-        df.progress_apply(write_photo, axis="columns")
+        for row in tqdm(df.to_dict("records")):
+            write_photo(row)
 
     return df
 
@@ -404,13 +403,16 @@ def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
     """Save all frog information up until now to the local PostgreSQL server"""
     engine = db.create_engine(sql_server_string)
 
+    # add index as "id"
+    df.loc[:, "id"] = df.index.to_series()
+
     with engine.connect() as con:
         df.to_sql("frogs", con, if_exists="replace", index=False)
 
     engine.dispose()
 
 
-def main(
+def run(
     photo_dir: str,
     zips: List[str],
     whareorino_excel_file: str,
@@ -426,6 +428,8 @@ def main(
     :param sql_server_string:
     :return:
     """
+    # Log to disk
+    logger.add("parse_previous_captures.log")
 
     """Prepare information related to the photos"""
 
@@ -461,13 +465,7 @@ def main(
 
 
 if __name__ == "__main__":
-    # Create .progress_apply() in pandas
-    tqdm.pandas()
-
-    # Log to disk
-    logger.add("parse_previous_captures.log")
-
-    main(
+    run(
         PHOTO_PATH,
         ZIP_NAMES,
         WHAREORINO_EXCEL_FILE,

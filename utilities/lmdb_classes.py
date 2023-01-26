@@ -1,31 +1,5 @@
-import io
-from typing import List
-
 import lmdb
 from loguru import logger
-from PIL import Image
-
-
-class ImageRecord(object):
-    def __init__(self, buffer: io.BytesIO) -> None:
-        """
-        This class is used when reading or loading images from the disk.
-        """
-        assert buffer is not None, "Invalid buffer given!"
-        self.image_buf = buffer
-
-    def get_image(self) -> Image:
-        """
-        :return: a PIL image
-        """
-        return Image.open(self.image_buf)
-
-    def serialize(self) -> bytes:
-        return self.image_buf.getvalue()
-
-    @staticmethod
-    def deserialize(record_bytestring: bytes) -> "ImageRecord":
-        return ImageRecord(buffer=io.BytesIO(record_bytestring))
 
 
 class LmdbReader(object):
@@ -42,15 +16,9 @@ class LmdbReader(object):
             meminit=False,
             max_spare_txns=self.num_workers,
         )
+        return self
 
-    def read_image(self, key: bytes) -> Image:
-        return self.read_image_record(key).get_image()
-
-    def read_image_record(self, key: bytes) -> ImageRecord:
-        buffer = self.read_bytes(key)
-        return ImageRecord.deserialize(buffer)
-
-    def read_bytes(self, key: bytes) -> bytes:
+    def read(self, key: bytes) -> bytes:
         with self.environment.begin(write=False) as txn:
             buffer = txn.get(key)
             assert (
@@ -78,15 +46,11 @@ class LmdbWriter(object):
         self.environment = self.open_environment()
         return self
 
-    def add_record(self, key: bytes, record: ImageRecord) -> None:
-        self.cache[key] = record.serialize()
+    def add(self, key: bytes, value: bytes) -> None:
+        self.cache[key] = value
         self.count += 1
         if self.count % self.cache_size == self.cache_size - 1:
             self.write_cache()
-
-    def add_records(self, keys: List[bytes], records: List[ImageRecord]) -> None:
-        for key, record in zip(keys, records):
-            self.add_record(key, record)
 
     def write_cache(self) -> None:
         with self.environment.begin(write=True) as txn:

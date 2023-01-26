@@ -20,7 +20,6 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
         dataframe,
         x_col,
         y_col,
-        color_mode="rgb",
         target_size=(256, 256),
         batch_size=32,
         scale=(1.0, 1.0),
@@ -45,8 +44,6 @@ class LandMarkDataGenerator(tf.keras.utils.Sequence):
         y_col: column name of label variables, should be x,y pairs
                 if using resize_points last two column should be image size
                 example: x_left_eye, y_left_eye, x_right_eye, y_right_eye, ..... , image_height, image_width
-
-        color_mode: color mode of the image as used by ImageDateGenerator by keras
 
         target_size: Tuple of ints, indicating to what size images will be resized, default (256, 256)
                      where the size tuple is (height, width)

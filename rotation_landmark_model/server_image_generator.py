@@ -6,6 +6,8 @@ import pandas as pd
 import tensorflow as tf
 from PIL import Image
 
+from utilities.utilities import force_image_to_be_rgb
+
 
 class ServerImageDataGenerator:
     """Replaces ImageDataGenerator with one that loads images from a server"""
@@ -70,6 +72,7 @@ class ServerFlowIterator:
         for i, j in enumerate(index_array):
             # load, resize and rescale image to target size and scale
             with Image.open(BytesIO(self.df.iloc[j][self.x_col])) as image:
+                image = force_image_to_be_rgb(image)
                 image = image.resize(self.target_size, Image.Resampling.NEAREST)
                 image_arr = tf.keras.utils.img_to_array(image)
                 image_arr = np.array([image_arr])  # Convert single image to a batch.

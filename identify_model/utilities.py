@@ -1,8 +1,12 @@
+from io import BytesIO
+
 import cv2
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from PIL import Image
+
+from utilities.utilities import force_image_to_be_rgb
 
 
 def get_bbox_corners(landmarks, delta=5):
@@ -33,11 +37,16 @@ def get_bbox_corners(landmarks, delta=5):
     return annots_extreme_4
 
 
-def preprocess_im(im: Image, landmarks: pd.Series) -> np.array:
-    crop_bbox = get_bbox_corners(landmarks, delta=5)
-    im = im.crop(crop_bbox)
-    im = np.array(im)
-    im = cv2.resize(im, (224, 224), interpolation=cv2.INTER_AREA)
-    im = tf.convert_to_tensor(im, dtype=tf.float32)
-    im = tf.expand_dims(im, axis=0)
-    return im
+def preprocess_ims(image_df: pd.DataFrame) -> tf.Tensor:
+    images_tf = []
+    dict_df = image_df.to_dict("records")
+    for row in dict_df:
+        with Image.open(BytesIO(row["image_bytes"])) as im:
+            im = force_image_to_be_rgb(im)
+            crop_bbox = get_bbox_corners(row, delta=5)
+            im = im.crop(crop_bbox)
+            im = cv2.resize(np.array(im), (224, 224), interpolation=cv2.INTER_AREA)
+            tf_im = tf.convert_to_tensor(im, dtype=tf.float32)
+            tf_im = tf.expand_dims(tf_im, axis=0)
+            images_tf.append(tf_im)
+    return tf.concat(images_tf, axis=0)

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from utilities.utilities import BATCH_SIZE
+from utilities.utilities import BATCH_SIZE, force_image_to_be_rgb
 
 # Columns in prediction df, ordered
 ORDERED_LANDMARK_UNNAMED_COLS = [
@@ -30,15 +30,6 @@ ORDERED_LANDMARK_UNNAMED_COLS = [
 ]
 
 
-def is_image(file_path):
-    try:
-        im = Image.open(file_path)
-        im.close()
-        return True
-    except Exception:
-        return False
-
-
 def fix_prediction_order(prediction):
     """I have no idea why this is necessary"""
     if len(prediction) <= BATCH_SIZE:
@@ -57,6 +48,7 @@ def debug_landmark_labels(pred_df: pd.DataFrame, labels_column_names: List[str])
     # Save predictions on original size
     for j, image_bytes in enumerate(pred_df["image_bytes"]):
         with Image.open(BytesIO(image_bytes)) as image_file:
+            image_file = force_image_to_be_rgb(image_file)
             im = cv2.cvtColor(np.array(image_file), cv2.COLOR_RGB2BGR)
         labels = pred_df.iloc[j][labels_column_names].to_list()
         thickness = math.ceil(pred_df.iloc[j].height_size / 224) + 1

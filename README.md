@@ -30,25 +30,22 @@ TBC
 
 ## How to use
 
-### First parse existing frog data to Postgres and LMDB databases
+### First parse existing frog data to Postgres and LMDB databases, then get frog identity vectors for this dataset
 
-1. Create a folder by the name of `pepeketua_id`.
-2. Place the two excel sheets in that folder.
+1. Create folders called `pepeketua_id`, and `model_weights` in this directory.
+2. Place the two excel sheets in `pepeketua_id`.
 3. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in
-   the directory `pepeketua_id/`
-4. Run the docker_start.sh script: ``docker_start.sh <whareorino_excel_path> <pukeokahu_excel_path>``
-
-### Then get embeddings for this dataset
-
-1. Create the directory `model_weights` inside this directory
-2. Download all model dirs
+   the directory `pepeketua_id`
+4. Download all model dirs
    from [this url](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them
    in `model_weights`
+5. Run the docker_start.sh script: ``docker_start.sh <whareorino_excel_path> <pukeokahu_excel_path>`` and wait for the
+   processing to be done.
 
 ## Result
 
 The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures
-to a LMDB server.
+to a LMDB. Then it extracts the id vectors from the frog images and saves those to the LMDB as well.
 
 The script will save some csv files to the shared folder:
 
