@@ -1,6 +1,7 @@
 # Pepeketua ID GUI
 
-This repository contains scripts and resources to develop a GUI that helps biologist identify individual Archey's frogs (Leiopelma archeyi).
+This repository contains scripts and resources to develop a GUI that helps biologist identify individual Archey's
+frogs (Leiopelma archeyi).
 
 Lior Uzan carried out this work, with the support of Bar Vinograd and Victor Anton.
 
@@ -19,25 +20,35 @@ Lior Uzan carried out this work, with the support of Bar Vinograd and Victor Ant
 [![MIT License][license-shield]][license-url]
 
 ## Overview
+
 TBC
 
-
 ## Requirements
+
 * [Python 3.9+](https://www.python.org/)
 * TBC
 
 ## How to use
-1. Create a folder by the name of `pepeketua_id`. 
-2. Place the two excel sheets in that folder.
-3. Create the subdirectory `pepeketua_id/frog_photos`
-4. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in the directory `pepeketua_id/frog_photos`
-5. Start a local Postgresql server with table `frogs`
-6. Execute `python parse_previous_captures.py <sql_server_string>` where `sql_server_string` is in the format `postgresql://<user>:<pass>@localhost/frogs`
+
+### First parse existing frog data to Postgres and LMDB databases, then get frog identity vectors for this dataset
+
+1. Create folders called `pepeketua_id`, and `model_weights` in this directory.
+2. Place the two excel sheets in `pepeketua_id`.
+3. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in
+   the directory `pepeketua_id`
+4. Download all model dirs
+   from [this url](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them
+   in `model_weights`
+5. Run the docker_start.sh script: ``docker_start.sh <whareorino_excel_path> <pukeokahu_excel_path>`` and wait for the
+   processing to be done.
 
 ## Result
-The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures to a LMDB server.
+
+The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures
+to a LMDB. Then it extracts the id vectors from the frog images and saves those to the LMDB as well.
 
 The script will save some csv files to the shared folder:
+
 - `parse_previous_captures.log`: Log file for script outputs
 - `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
 - `missing_photos.csv`: All rows that have no "filepath" column value.
@@ -46,25 +57,37 @@ The script will save some csv files to the shared folder:
 
 If you use this code or its models, please cite:
 
-Uzan L, Vinograd B, Anton V (2022). Pepeketua ID - A frog identification app. https://github.com/wildlifeai/pepeketua_interface
-
+Uzan L, Vinograd B, Anton V (2022). Pepeketua ID - A frog identification
+app. https://github.com/wildlifeai/pepeketua_interface
 
 ## Collaborations/questions
 
-We are working to make our work available to anyone interested. Please feel free to [contact us][contact_info] if you have any questions.
+We are working to make our work available to anyone interested. Please feel free to [contact us][contact_info] if you
+have any questions.
 
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
+
 [contributors-shield]: https://img.shields.io/github/contributors/wildlifeai/pepeketua_interface.svg?style=for-the-badge
+
 [contributors-url]: https://https://github.com/wildlifeai/pepeketua_interface/graphs/contributors
+
 [forks-shield]: https://img.shields.io/github/forks/wildlifeai/pepeketua_interface.svg?style=for-the-badge
+
 [forks-url]: https://github.com/wildlifeai/pepeketua_interface/network/members
+
 [stars-shield]: https://img.shields.io/github/stars/wildlifeai/pepeketua_interface.svg?style=for-the-badge
+
 [stars-url]: https://github.com/wildlifeai/pepeketua_interface/stargazers
+
 [issues-shield]: https://img.shields.io/github/issues/wildlifeai/pepeketua_interface.svg?style=for-the-badge
+
 [issues-url]: https://github.com/wildlifeai/pepeketua_interface/issues
+
 [license-shield]: https://img.shields.io/github/license/wildlifeai/pepeketua_interface.svg?style=for-the-badge
+
 [license-url]: https://github.com/wildlifeai/pepeketua_interface/blob/main/LICENSE.txt
+
 [contact_info]: contact@wildlife.ai
