@@ -1,3 +1,5 @@
+from typing import List
+
 import lmdb
 from loguru import logger
 
@@ -23,8 +25,16 @@ class LmdbReader(object):
             buffer = txn.get(key)
             assert (
                 buffer is not None
-            ), f"The following record was not found in the LMDB: {key.decode()}"
-            return buffer
+            ), f"The following key was not found in the LMDB: {key.decode()}"
+        return buffer
+
+    def read_keys(self, keys: List[bytes]) -> List[bytes]:
+        with self.environment.begin(write=False) as txn:
+            buffers = [txn.get(key) for key in keys]
+            assert not (
+                None in buffers
+            ), f"There was at least one key that was not found in the LMDB."
+        return buffers
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.environment.close()

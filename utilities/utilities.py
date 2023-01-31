@@ -1,14 +1,15 @@
-import functools
 from io import BytesIO
 from os.path import join
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import faiss
 import numpy as np
 import pandas as pd
+import sqlalchemy as db
+import streamlit as st
 from loguru import logger
 from PIL import Image
-from sqlalchemy.engine import Row
+from sqlalchemy import create_engine
 
 from utilities.lmdb_classes import LmdbReader, LmdbWriter
 
@@ -38,6 +39,7 @@ LANDMARK_MODEL = "model_weights/landmark_model_714"
 ROTATION_MODEL = "model_weights/rotation_model_weights_10"
 IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
 EMBEDDING_LENGTH = 64
+K_NEAREST = 3
 
 
 def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
@@ -66,22 +68,16 @@ def force_image_to_be_rgb(image: Image) -> Image:
     return image
 
 
-@functools.lru_cache
-def get_dummy_image_bytes() -> bytes:
-    memory_file = BytesIO()
-    image = Image.new("RGB", (1, 1))
-    image.save(memory_file, "JPEG")
-    return memory_file.getvalue()
-
-
-def prepare_batch(result_batch: Iterator[Sequence[Row]]) -> Optional[pd.DataFrame]:
+def prepare_batch(batch_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     """
     Get and return images for all rows that have non-NaN "filepath" entries, None if there aren't any.
-    :param result_batch:
+    :param batch_df: df containing all frog information, including lmdb_key.
+                     Can contain existing image_bytes if images were loaded from an
+                     external source (such as uploaded files)
     :return:
     """
-    batch_df = pd.DataFrame(result_batch)
-    batch_df["image_bytes"] = fetch_images_from_lmdb(batch_df["lmdb_key"])
+    if "image_bytes" not in batch_df:
+        batch_df.loc[:, "image_bytes"] = fetch_images_from_lmdb(batch_df["lmdb_key"])
 
     if bool(batch_df["image_bytes"].any()) is False:
         return None
@@ -128,6 +124,64 @@ def update_indices(
 
 def save_indices_to_lmdb(indices: Dict[str, faiss.Index]):
     for grid, index in indices.items():
-        index_bytes = faiss.serialize_index(index)
+        index_bytes = faiss.serialize_index(index).tobytes()
         with LmdbWriter(LMDB_PATH) as writer:
             writer.add(grid.encode(), index_bytes)
+
+
+@st.experimental_memo
+def load_indices_from_lmdb() -> Dict[str, faiss.Index]:
+    indices = dict()
+    with LmdbReader(LMDB_PATH) as reader:
+        for grid in GRID_NAMES:
+            index_bytes = reader.read(grid.encode())
+            index_array = np.frombuffer(index_bytes, dtype=np.uint8)
+            indices[grid] = faiss.deserialize_index(index_array)
+    return indices
+
+
+def display_image_and_k_nn(row_num: int, image_bytes: bytes, k_nn: List[int]):
+    st.write(f"# Displaying frog image {row_num} and it's K Nearest Neighbors")
+    with Image.open(BytesIO(image_bytes)) as image:
+        st.image(image)
+
+    rows, images = get_rows_and_images_from_ids(k_nn)
+    for j, image in enumerate(images):
+        st.write(rows.loc[j].to_frame().T)
+        st.image(image)
+
+    # Close images
+    list(map(lambda im: im.close(), images))
+
+
+def get_rows_and_images_from_ids(ids: np.array) -> Tuple[pd.DataFrame, List["Image"]]:
+    with SqlQuery() as (connection, frogs):
+        statement = db.select(frogs).where(frogs.c.id.in_(ids))
+        result = connection.execute(statement)
+        df = pd.DataFrame(result.fetchall())
+
+    with LmdbReader(LMDB_PATH) as reader:
+        keys = [key.encode() for key in df["lmdb_key"].to_list()]
+        images_bytes = reader.read_keys(keys)
+
+    images = [Image.open(BytesIO(image_bytes)) for image_bytes in images_bytes]
+    return df, images
+
+
+class SqlQuery:
+    """A simple class used to query our SQL server"""
+
+    def __init__(self):
+        self.engine = create_engine(SQL_SERVER_STRING)
+        self.metadata = db.MetaData()
+
+    def __enter__(self):
+        self.connection = self.engine.connect()
+        frogs = db.Table(
+            "frogs", self.metadata, autoload=True, autoload_with=self.connection
+        )
+        return self.connection, frogs
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.close()
+        self.engine.dispose()

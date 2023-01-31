@@ -386,8 +386,8 @@ def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
         with ZipFile(join(zip_path, row["zip_source"]), mode="r") as zip_file:
             writer.add(row["lmdb_key"].encode(), zip_file.read(row["filepath"]))
 
-    # Set lmdb key to be the index as byte string in the format b"000000012" if filepath exists, nan otherwise
-    df["lmdb_key"] = df.index.to_series().apply(lambda ix: f"{ix:09}")
+    # Set lmdb key to be the index as string in the format "000000012" if filepath exists, nan otherwise
+    df["lmdb_key"] = df["id"].apply(lambda ix: f"{ix:09}")
     df["lmdb_key"] = df["lmdb_key"].where(df["filepath"].notna(), np.nan)
 
     # Write photos to lmdb sequentially
@@ -403,40 +403,22 @@ def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
     """Save all frog information up until now to the local PostgreSQL server"""
     engine = db.create_engine(sql_server_string)
 
-    # add index as "id"
-    df.loc[:, "id"] = df.index.to_series()
-
     with engine.connect() as con:
         df.to_sql("frogs", con, if_exists="replace", index=False)
 
     engine.dispose()
 
 
-def run(
-    photo_dir: str,
-    zips: List[str],
-    whareorino_excel_file: str,
-    pukeokahu_excel_file: str,
-    sql_server_string: str,
-):
-    """
-
-    :param photo_dir:
-    :param zips:
-    :param whareorino_excel_file:
-    :param pukeokahu_excel_file:
-    :param sql_server_string:
-    :return:
-    """
+def run():
     # Log to disk
     logger.add("parse_previous_captures.log")
 
     """Prepare information related to the photos"""
 
-    frog_photo_file_list = expand_photo_file_list_df(photo_dir, zips)
+    frog_photo_file_list = expand_photo_file_list_df(PHOTO_PATH, ZIP_NAMES)
 
     frog_id_df, whareorino_df, pukeokahu_df = load_excel_spreadsheets(
-        pukeokahu_excel_file, whareorino_excel_file
+        PUKEOKAHU_EXCEL_FILE, WHAREORINO_EXCEL_FILE
     )
 
     # filter entries later than 1.1.2020
@@ -459,16 +441,13 @@ def run(
 
     merged_frog_id_filepath = find_incorrect_filepaths(merged_frog_id_filepath)
 
-    merged_frog_id_filepath = save_photos_to_lmdb(merged_frog_id_filepath, photo_dir)
+    # Add index as "id" for future reference
+    merged_frog_id_filepath.loc[:, "id"] = merged_frog_id_filepath.index.to_series()
 
-    save_to_postgres(merged_frog_id_filepath, sql_server_string)
+    merged_frog_id_filepath = save_photos_to_lmdb(merged_frog_id_filepath, PHOTO_PATH)
+
+    save_to_postgres(merged_frog_id_filepath, SQL_SERVER_STRING)
 
 
 if __name__ == "__main__":
-    run(
-        PHOTO_PATH,
-        ZIP_NAMES,
-        WHAREORINO_EXCEL_FILE,
-        PUKEOKAHU_EXCEL_FILE,
-        SQL_SERVER_STRING,
-    )
+    run()
