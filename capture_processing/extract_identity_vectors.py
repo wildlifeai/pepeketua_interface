@@ -1,23 +1,22 @@
 from typing import Dict
 
 import faiss
+import pandas as pd
 import sqlalchemy as db
 from loguru import logger
-from sqlalchemy import create_engine
 from tqdm import tqdm
 
+from capture_processing.inference_model import get_inference_model
 from inference_model import InferenceModel
 
 # Suppress TensorFlow warnings
 from utilities.utilities import (
     BATCH_SIZE,
-    IDENTIFY_MODEL,
     initialize_faiss_indices,
-    LANDMARK_MODEL,
     prepare_batch,
-    ROTATION_MODEL,
     save_indices_to_lmdb,
     SQL_SERVER_STRING,
+    SqlQuery,
     update_indices,
 )
 
@@ -27,50 +26,42 @@ def fill_indices_with_identity_vectors_of_previous_captures(
     sql_server_string: str,
     indices: Dict[str, faiss.Index],
 ) -> Dict[str, faiss.Index]:
-    engine = create_engine(sql_server_string)
-    metadata = db.MetaData()
-
-    with engine.connect() as connection:
-        frogs = db.Table("frogs", metadata, autoload=True, autoload_with=connection)
-
-        # create a select statement
+    with SqlQuery() as (connection, frogs):
         query = db.select(
             [frogs.columns.id, frogs.columns.lmdb_key, frogs.columns.Grid]
         )
         cursor_result = connection.execute(query)
         result_generator = cursor_result.partitions(size=BATCH_SIZE)
 
-    total_batches = (
-        cursor_result.rowcount // BATCH_SIZE + 1
-        if (cursor_result.rowcount % BATCH_SIZE) > 0
-        else 0
-    )
-    for result_batch in tqdm(result_generator, total=total_batches):
-        batch_df = prepare_batch(result_batch)
-        if batch_df is None:
-            continue
+        total_batches = (
+            cursor_result.rowcount // BATCH_SIZE + 1
+            if (cursor_result.rowcount % BATCH_SIZE) > 0
+            else 0
+        )
+        for result_batch in tqdm(result_generator, total=total_batches):
+            result_df = pd.DataFrame(result_batch)
 
-        identity_vectors, ids, grids = inference_model.predict(batch_df)
-        update_indices(indices, identity_vectors, ids, grids)
+            batch_df = prepare_batch(result_df)
+            if batch_df is None:
+                continue
 
-    # Close db cursor after iteration ends
-    cursor_result.close()
+            identity_vectors, ids, grids = inference_model.predict(batch_df)
+            update_indices(indices, identity_vectors, ids, grids)
+            break
+
+        # Close db cursor after iteration ends
+        cursor_result.close()
 
     return indices
 
 
-def run(
-    rotation_model: str,
-    landmark_model: str,
-    identify_model: str,
-    sql_server_string: str,
-):
-    inference_model = InferenceModel(rotation_model, landmark_model, identify_model)
+def run():
+    inference_model = get_inference_model()
 
     indices = initialize_faiss_indices()
 
     indices = fill_indices_with_identity_vectors_of_previous_captures(
-        inference_model, sql_server_string, indices
+        inference_model, SQL_SERVER_STRING, indices
     )
 
     for grid, index in indices.items():
@@ -81,4 +72,4 @@ def run(
 
 
 if __name__ == "__main__":
-    run(ROTATION_MODEL, LANDMARK_MODEL, IDENTIFY_MODEL, SQL_SERVER_STRING)
+    run()

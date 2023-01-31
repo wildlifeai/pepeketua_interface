@@ -1,7 +1,8 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 import tensorflow as tf
 
 from identify_model.utilities import preprocess_ims
@@ -14,8 +15,11 @@ from rotation_landmark_model.utilities import (
     positive_deg_theta,
 )
 from utilities.utilities import (
+    IDENTIFY_MODEL,
     IMAGE_SIZE,
+    LANDMARK_MODEL,
     ROT_IMAGE_SIZE,
+    ROTATION_MODEL,
 )
 
 
@@ -40,14 +44,16 @@ class InferenceModel:
         identity_vectors = self.identity_model(tf_images)
         return identity_vectors.numpy()
 
-    def predict(self, image_df: pd.DataFrame) -> Tuple[np.array, np.array, pd.Series]:
+    def predict(
+        self, image_df: pd.DataFrame
+    ) -> Tuple[np.array, Optional[np.array], pd.Series]:
         """
         Predict identity vectors from images with the following steps:
             1. Predict rotation of frog
             2. Rotate and predict landmarks for each image
             3. Use landmarks to predict identity vectors for each image
         :param image_df:
-        :return: Identity vectors for each image
+        :return: Identity vectors for each image, Image ids (optional), Grid assignment for each image
         """
 
         """Start by predicting landmarks from images"""
@@ -105,4 +111,15 @@ class InferenceModel:
         # Identity vector prediction
         identity_vectors = self.get_identity_vectors(image_df)
 
-        return identity_vectors, image_df["id"].to_numpy(), image_df["Grid"]
+        # Return ids only if they exist in image_df (may be newly uploaded images with no ids)
+        ids = image_df["id"].to_numpy() if "id" in image_df else None
+        return identity_vectors, ids, image_df["Grid"]
+
+
+@st.experimental_singleton
+def get_inference_model():
+    """
+    Warning: keras models are not considered thread safe.
+    If there will be many users this must be taken into consideration
+    """
+    return InferenceModel(ROTATION_MODEL, LANDMARK_MODEL, IDENTIFY_MODEL)
