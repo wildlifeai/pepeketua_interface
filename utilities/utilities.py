@@ -39,7 +39,7 @@ LANDMARK_MODEL = "model_weights/landmark_model_714"
 ROTATION_MODEL = "model_weights/rotation_model_weights_10"
 IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
 EMBEDDING_LENGTH = 64
-K_NEAREST = 3
+DEFAULT_K_NEAREST = 3
 
 
 def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
@@ -130,7 +130,7 @@ def save_indices_to_lmdb(indices: Dict[str, faiss.Index]):
 
 
 @st.experimental_memo
-def load_indices_from_lmdb() -> Dict[str, faiss.Index]:
+def load_faiss_indices_from_lmdb() -> Dict[str, faiss.Index]:
     indices = dict()
     with LmdbReader(LMDB_PATH) as reader:
         for grid in GRID_NAMES:
@@ -141,19 +141,20 @@ def load_indices_from_lmdb() -> Dict[str, faiss.Index]:
 
 
 def display_image_and_k_nn(row_num: int, image_bytes: bytes, k_nn: List[int]):
-    st.write(f"# Displaying frog image {row_num} and it's K Nearest Neighbors")
+    st.write(
+        f"# Displaying frog image {row_num} and it's {len(k_nn)} Nearest Neighbors"
+    )
     with Image.open(BytesIO(image_bytes)) as image:
         st.image(image)
 
     rows, images = get_rows_and_images_from_ids(k_nn)
-    for j, image in enumerate(images):
-        st.write(rows.loc[j].to_frame().T)
-        st.image(image)
+    st.image(images)
 
     # Close images
     list(map(lambda im: im.close(), images))
 
 
+@st.experimental_memo
 def get_rows_and_images_from_ids(ids: np.array) -> Tuple[pd.DataFrame, List["Image"]]:
     with SqlQuery() as (connection, frogs):
         statement = db.select(frogs).where(frogs.c.id.in_(ids))
