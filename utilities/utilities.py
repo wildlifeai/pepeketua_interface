@@ -1,6 +1,6 @@
 from io import BytesIO
 from os.path import join
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import faiss
 import numpy as np
@@ -147,7 +147,7 @@ def display_image_and_k_nn(row_num: int, image_bytes: bytes, k_nn: List[int]):
     with Image.open(BytesIO(image_bytes)) as image:
         st.image(image)
 
-    rows, images = get_rows_and_images_from_ids(k_nn)
+    rows, images = get_row_and_image_by_id(k_nn)
     st.image(images)
 
     # Close images
@@ -155,18 +155,28 @@ def display_image_and_k_nn(row_num: int, image_bytes: bytes, k_nn: List[int]):
 
 
 @st.experimental_memo
-def get_rows_and_images_from_ids(ids: np.array) -> Tuple[pd.DataFrame, List["Image"]]:
+def get_image(image_bytes: bytes) -> Image.Image:
+    return force_image_to_be_rgb(Image.open(BytesIO(image_bytes)))
+
+
+@st.experimental_memo
+def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, Image.Image]:
     with SqlQuery() as (connection, frogs):
-        statement = db.select(frogs).where(frogs.c.id.in_(ids))
+        statement = db.select(frogs).where(frogs.c.id == id)
         result = connection.execute(statement)
-        df = pd.DataFrame(result.fetchall())
+        row = pd.DataFrame(result.fetchall())
 
     with LmdbReader(LMDB_PATH) as reader:
-        keys = [key.encode() for key in df["lmdb_key"].to_list()]
-        images_bytes = reader.read_keys(keys)
+        image_bytes = reader.read(row.at[0, "lmdb_key"].encode())
 
-    images = [Image.open(BytesIO(image_bytes)) for image_bytes in images_bytes]
-    return df, images
+    image = get_image(image_bytes)
+    return row, image
+
+
+@st.experimental_singleton
+def get_usage_instructions():
+    with open("utilities/USAGE.md", "r") as file:
+        return file.read()
 
 
 class SqlQuery:
