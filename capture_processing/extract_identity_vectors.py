@@ -15,7 +15,6 @@ from utilities.utilities import (
     initialize_faiss_indices,
     prepare_batch,
     save_indices_to_lmdb,
-    SQL_SERVER_STRING,
     SqlQuery,
     update_indices,
 )
@@ -23,7 +22,6 @@ from utilities.utilities import (
 
 def fill_indices_with_identity_vectors_of_previous_captures(
     inference_model: InferenceModel,
-    sql_server_string: str,
     indices: Dict[str, faiss.Index],
 ) -> Dict[str, faiss.Index]:
     with SqlQuery() as (connection, frogs):
@@ -33,21 +31,25 @@ def fill_indices_with_identity_vectors_of_previous_captures(
         cursor_result = connection.execute(query)
         result_generator = cursor_result.partitions(size=BATCH_SIZE)
 
+        # Manually update tqdm loop to be able to count skipped steps
         total_batches = (
             cursor_result.rowcount // BATCH_SIZE + 1
             if (cursor_result.rowcount % BATCH_SIZE) > 0
             else 0
         )
-        for result_batch in tqdm(result_generator, total=total_batches):
-            result_df = pd.DataFrame(result_batch)
+        with tqdm(total=total_batches) as pbar:
+            for result_batch in result_generator:
+                result_df = pd.DataFrame(result_batch)
 
-            batch_df = prepare_batch(result_df)
-            if batch_df is None:
-                continue
+                batch_df = prepare_batch(result_df)
+                if batch_df is None:
+                    pbar.update(1)
+                    continue
 
-            identity_vectors, ids, grids = inference_model.predict(batch_df)
-            update_indices(indices, identity_vectors, ids, grids)
-            break
+                identity_vectors, ids, grids = inference_model.predict(batch_df)
+                update_indices(indices, identity_vectors, ids, grids)
+                pbar.update(1)
+                break
 
         # Close db cursor after iteration ends
         cursor_result.close()
@@ -61,7 +63,7 @@ def run():
     indices = initialize_faiss_indices()
 
     indices = fill_indices_with_identity_vectors_of_previous_captures(
-        inference_model, SQL_SERVER_STRING, indices
+        inference_model, indices
     )
 
     for grid, index in indices.items():

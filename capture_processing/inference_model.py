@@ -16,9 +16,7 @@ from rotation_landmark_model.utilities import (
 )
 from utilities.utilities import (
     IDENTIFY_MODEL,
-    IMAGE_SIZE,
     LANDMARK_MODEL,
-    ROT_IMAGE_SIZE,
     ROTATION_MODEL,
 )
 
@@ -52,46 +50,39 @@ class InferenceModel:
             1. Predict rotation of frog
             2. Rotate and predict landmarks for each image
             3. Use landmarks to predict identity vectors for each image
-        :param image_df:
+        :param image_df: df containing image data, will be processed in one batch.
         :return: Identity vectors for each image, Image ids (optional), Grid assignment for each image
         """
 
         """Start by predicting landmarks from images"""
-        batch_size = len(image_df)
-        gpred_rot = LandMarkDataGenerator(
-            dataframe=image_df,
-            x_col="image_bytes",
-            y_col=["width_size", "height_size"],
-            target_size=ROT_IMAGE_SIZE,
-            batch_size=batch_size,
-            training=False,
-            resize_points=True,
-            specific_rotations=False,
-        )
 
-        rot_prediction = self.rotation_model.predict(gpred_rot)
+        """This generator returns data of ALL of image_df in one batch. Batchifying needs to be done before this step"""
+        generator = LandMarkDataGenerator(
+            dataframe=image_df, x_col="image_bytes", batch_size=len(image_df)
+        )
+        rotation_model_images, regular_images = next(generator)
+
+        rot_prediction = self.rotation_model(rotation_model_images).numpy()
         rot_prediction = fix_prediction_order(rot_prediction)
         pred_theta = np.arctan2(rot_prediction[:, 1], rot_prediction[:, 0])
         rot_prediction = positive_deg_theta(pred_theta)
         image_df["rotation"] = -rot_prediction
 
-        gpred = LandMarkDataGenerator(
-            dataframe=image_df,
-            x_col="image_bytes",
-            y_col=["width_size", "height_size", "rotation"],
-            target_size=IMAGE_SIZE,
-            batch_size=batch_size,
-            training=False,
-            resize_points=True,
-            specific_rotations=True,
-        )
+        # ############# LANDMARK MODEL ###############
 
-        prediction = self.landmark_model.predict(gpred)
+        # The last column is the rotations for every image.
+        # Rotate all images before feeding them into the landmark model
+        rotations = image_df.loc[:, "rotation"].values[:, np.newaxis]
+        rotated_regular_images = generator.rotate_images_specifically(
+            rotations, regular_images
+        )
+        prediction = self.landmark_model(rotated_regular_images).numpy()
+
         prediction = fix_prediction_order(prediction)
         image_df.loc[:, ORDERED_LANDMARK_UNNAMED_COLS[:12]] = prediction
 
-        # resize predictions to original image size
-        pred_original_size = gpred.create_final_labels(
+        # Resize landmark predictions to original image size
+        pred_original_size = generator.create_final_labels(
             image_df[ORDERED_LANDMARK_UNNAMED_COLS]
         )
 

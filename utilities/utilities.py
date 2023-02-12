@@ -1,3 +1,4 @@
+import time
 from io import BytesIO
 from os.path import join
 from typing import Dict, List, Optional, Tuple, Union
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 import sqlalchemy as db
 import streamlit as st
+import turbojpeg
 from loguru import logger
 from PIL import Image
 from sqlalchemy import create_engine
@@ -41,6 +43,27 @@ IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
 EMBEDDING_LENGTH = 64
 DEFAULT_K_NEAREST = 3
 
+jpeg = turbojpeg.TurboJPEG()
+
+
+class SqlQuery:
+    """A simple class used to query our SQL server"""
+
+    def __init__(self):
+        self.engine = create_engine(SQL_SERVER_STRING)
+        self.metadata = db.MetaData()
+
+    def __enter__(self):
+        self.connection = self.engine.connect()
+        frogs = db.Table(
+            "frogs", self.metadata, autoload=True, autoload_with=self.connection
+        )
+        return self.connection, frogs
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.close()
+        self.engine.dispose()
+
 
 def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
     with LmdbReader(LMDB_PATH) as reader:
@@ -51,8 +74,9 @@ def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
 
 
 def get_image_size(image_bytes: bytes) -> Tuple:
-    with Image.open(BytesIO(image_bytes)) as im:
-        return im.width, im.height
+    # Decode the JPEG header to get the image dimensions
+    width, height, _, _ = jpeg.decode_header(image_bytes)
+    return width, height
 
 
 def force_image_to_be_rgb(image: Image) -> Image:
@@ -66,6 +90,20 @@ def force_image_to_be_rgb(image: Image) -> Image:
             )
             raise error
     return image
+
+
+def time_it(func):
+    """Simple decorator used to time functions and print their runtime"""
+
+    def wrapper(*args, **kwargs):
+        logger.debug(f"{args}")
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        logger.debug(f"{func.__name__} took {end - start:.6f} seconds")
+        return result
+
+    return wrapper
 
 
 def prepare_batch(batch_df: pd.DataFrame) -> Optional[pd.DataFrame]:
@@ -177,22 +215,3 @@ def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, Image.
 def get_usage_instructions():
     with open("utilities/USAGE.md", "r") as file:
         return file.read()
-
-
-class SqlQuery:
-    """A simple class used to query our SQL server"""
-
-    def __init__(self):
-        self.engine = create_engine(SQL_SERVER_STRING)
-        self.metadata = db.MetaData()
-
-    def __enter__(self):
-        self.connection = self.engine.connect()
-        frogs = db.Table(
-            "frogs", self.metadata, autoload=True, autoload_with=self.connection
-        )
-        return self.connection, frogs
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.connection.close()
-        self.engine.dispose()

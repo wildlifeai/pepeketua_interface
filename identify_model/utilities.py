@@ -6,7 +6,7 @@ import pandas as pd
 import tensorflow as tf
 from PIL import Image
 
-from utilities.utilities import force_image_to_be_rgb
+from utilities.utilities import force_image_to_be_rgb, IMAGE_SIZE
 
 
 def get_bbox_corners(landmarks, delta=5):
@@ -45,7 +45,7 @@ def preprocess_ims(image_df: pd.DataFrame) -> tf.Tensor:
             im = force_image_to_be_rgb(im)
             crop_bbox = get_bbox_corners(row, delta=5)
             im = im.crop(crop_bbox)
-            im = cv2.resize(np.array(im), (224, 224), interpolation=cv2.INTER_AREA)
+            im = cv2.resize(np.array(im), IMAGE_SIZE, interpolation=cv2.INTER_AREA)
             tf_im = tf.convert_to_tensor(im, dtype=tf.float32)
             tf_im = tf.expand_dims(tf_im, axis=0)
             images_tf.append(tf_im)

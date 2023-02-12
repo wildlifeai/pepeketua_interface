@@ -1,36 +1,16 @@
 from io import BytesIO
-from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
+from keras_preprocessing.image import img_to_array
 from PIL import Image
 
-from utilities.utilities import force_image_to_be_rgb
-
-
-class ServerImageDataGenerator:
-    """Replaces ImageDataGenerator with one that loads images from a server"""
-
-    def __init__(self, rescale: float = 1 / 255):
-        self.rescale = rescale
-
-    def flow_from_dataframe(
-        self,
-        dataframe: pd.DataFrame,
-        x_col: str,
-        y_col: List[str],
-        target_size: Optional[Tuple[int]] = None,
-        batch_size: int = 3,
-    ):
-        return ServerFlowIterator(
-            dataframe,
-            x_col,
-            y_col,
-            target_size,
-            batch_size,
-            self.rescale,
-        )
+from utilities.utilities import (
+    force_image_to_be_rgb,
+    IMAGE_SIZE,
+    ROT_IMAGE_SIZE,
+    time_it,
+)
 
 
 class ServerFlowIterator:
@@ -38,18 +18,13 @@ class ServerFlowIterator:
         self,
         df: pd.DataFrame,
         x_col: str,
-        y_col: Sequence[str],
-        target_size: Tuple[int],
         batch_size: int,
-        rescale: float,
     ):
         self.df = df
         self.n = len(df)
         self.x_col = x_col
-        self.labels = df[y_col].values
-        self.target_size = target_size
         self.batch_size = batch_size
-        self.rescale = rescale
+        self.rescale = 1 / 255
         self.batch_index = 0
         self.total_batches_seen = 0
         self.index_array = None
@@ -66,22 +41,37 @@ class ServerFlowIterator:
         ]
         return self._get_batches_of_transformed_samples(index_array)
 
+    @time_it
     def _get_batches_of_transformed_samples(self, index_array: np.array):
         # generate batch array including color depth channel
-        batch_x = np.zeros((len(index_array),) + self.target_size + (3,), dtype=None)
+        rotate_batch_x = np.zeros(
+            (len(index_array),) + ROT_IMAGE_SIZE + (3,), dtype=None
+        )
+        regular_batch_x = np.zeros((len(index_array),) + IMAGE_SIZE + (3,), dtype=None)
+
         for i, j in enumerate(index_array):
             # load, resize and rescale image to target size and scale
             with Image.open(BytesIO(self.df.iloc[j][self.x_col])) as image:
                 image = force_image_to_be_rgb(image)
-                image = image.resize(self.target_size, Image.Resampling.NEAREST)
-                image_arr = tf.keras.utils.img_to_array(image)
-                image_arr = np.array([image_arr])  # Convert single image to a batch.
-                image_arr *= self.rescale  # rescale image by factor
+                rotation_model_image = image.resize(
+                    ROT_IMAGE_SIZE[0], Image.Resampling.NEAREST
+                )
+                regular_image = image.resize(IMAGE_SIZE[0], Image.Resampling.NEAREST)
 
-            batch_x[i] = image_arr
+            rotate_image_arr = np.array(
+                [img_to_array(rotation_model_image)]
+            )  # Convert single image to a batch.
+            regular_image_arr = np.array(
+                [img_to_array(regular_image)]
+            )  # Convert single image to a batch.
 
-        batch_y = self.labels[index_array]
-        return batch_x, batch_y
+            rotate_image_arr *= self.rescale  # rescale image by factor
+            regular_image_arr *= self.rescale  # rescale image by factor
+
+            rotate_batch_x[i] = rotate_image_arr
+            regular_batch_x[i] = regular_image_arr
+
+        return rotate_batch_x, regular_batch_x
 
     def reset(self):
         self.batch_index = 0
@@ -103,9 +93,6 @@ class ServerFlowIterator:
                 self.batch_index = 0
 
             yield self.index_array[current_index : current_index + self.batch_size]
-
-    def on_epoch_end(self):
-        self._set_index_array()
 
     def __len__(self):
         return (self.n + self.batch_size - 1) // self.batch_size
