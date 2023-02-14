@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -7,49 +7,54 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from capture_processing.inference_model import get_inference_model
 from utilities.utilities import (
+    DEFAULT_K_NEAREST,
     get_image,
     get_row_and_image_by_id,
     get_usage_instructions,
+    jpeg,
     load_faiss_indices_from_lmdb,
-    prepare_batch,
 )
 
 
-def match_images_to_rows(df: pd.DataFrame, image_files: List[UploadedFile]):
+def match_images_to_rows(
+    df: pd.DataFrame, image_files: List[UploadedFile]
+) -> Tuple[pd.DataFrame, pd.Series]:
     assert (
         "filepath" in df
     ), "Excel sheet must contain the column 'filepath', please re-upload the correct sheet"
+    image_bytes = pd.Series(dtype=bytes)
+
     for image_file in image_files:
         image_index = df["filepath"].str.endswith(image_file.name, na=False)
 
-        assert sum(image_index) > 0, (
-            f"'{image_file.name}' cannot be found in any 'filepath'! "
-            f"Upload only images that have a valid 'filepath' reference"
-        )
-
         # Can replace this with usage of "do_frog_ids_match" column
         # (but then need to collect results differently in the end)
-        assert sum(image_index) <= 1, (
+        assert sum(image_index) == 1, (
             f"'{image_file.name}' must only be referenced by ONE row, "
             f"currently referenced by the rows {df[image_index].index}: {df[image_index]}"
         )
 
-        # Save image to the df
-        df.loc[image_index, "image_bytes"] = image_file.getvalue()
+        image_bytes.loc[image_index.idxmax()] = image_file.getvalue()
+
+    # Return relevant rows in df
+    df = df.loc[image_bytes.index]
+    df, image_bytes = df.reset_index(drop=True), image_bytes.reset_index(drop=True)
+
+    return df, image_bytes
 
 
-def generate_images(df: pd.DataFrame, query_images: List[UploadedFile], k_nearest: int):
-
-    image_names = tuple(image_file.name for image_file in query_images)
-    image_indices = df["filepath"].str.endswith(image_names, na=False)
-
+def generate_images(
+    df: pd.DataFrame,
+    query_images: List[UploadedFile],
+    k_nearest: int,
+    scaling_factor: Tuple[int, int],
+):
+    df, image_bytes = match_images_to_rows(df, query_images)
     # Get image contents and start process of identity vector collection
-    batch_df = df[image_indices]
-    batch_df = prepare_batch(batch_df)
-
     # Load inference model and calculate query id vectors
     inference_model = get_inference_model()
-    new_id_vectors, _, grids = inference_model.predict(batch_df)
+    batch_df, image_bytes = inference_model.prepare_batch(df, image_bytes)
+    new_id_vectors, _, grids = inference_model.predict(batch_df, image_bytes)
 
     grid_faiss_indices = load_faiss_indices_from_lmdb()
 
@@ -64,20 +69,24 @@ def generate_images(df: pd.DataFrame, query_images: List[UploadedFile], k_neares
         grid_faiss_index = grid_faiss_indices[grid_name]
         _, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
 
-        display_queries_and_nn_images(batch_df, nn, query_indices)
+        display_queries_and_nn_images(image_bytes, nn, query_indices, scaling_factor)
 
 
 def display_queries_and_nn_images(
-    batch_df: pd.DataFrame, nn: np.array, query_indices: pd.Index
+    image_bytes: pd.Series,
+    nn: np.array,
+    query_indices: pd.Index,
+    scaling_factor: Tuple[int, int],
 ):
     # For each query, display the query image on the left, then NN image slider on the right
     for j, batch_idx in enumerate(query_indices):
+
         # Ordering of containers and columns
         container = st.container()
         left_column, right_column = container.columns(2)
 
         # Show query image on left column
-        im = get_image(batch_df.loc[batch_idx, "image_bytes"])
+        im = get_image(image_bytes.loc[batch_idx], scaling_factor=scaling_factor)
         left_column.image(im)
 
         # Display the NN image on top and the slider on the bottom
@@ -92,8 +101,8 @@ def display_queries_and_nn_images(
         )
 
         # Render the selected nearest neighbor to the query
-        _, image = get_row_and_image_by_id(nn_indices[nn_number - 1])
-        top.image(image)
+        _, single_image_bytes = get_row_and_image_by_id(nn_indices[nn_number - 1])
+        top.image(get_image(single_image_bytes, scaling_factor=scaling_factor))
 
 
 def write_imageless_rows(image_indices: pd.Series, full_uploaded_excel: pd.DataFrame):
@@ -127,9 +136,15 @@ def main():
                 label="Select K value for K Nearest Neighbors",
                 min_value=1,
                 max_value=10,
-                value=3,
+                value=DEFAULT_K_NEAREST,
             )
-
+            # Scale factor for loading images
+            scaling_options = sorted(jpeg.scaling_factors)
+            scaling_factor = st.select_slider(
+                label="Select scaling factor for image display",
+                options=scaling_options,
+                format_func=lambda scale: f"{scale[0]}/{scale[1]}",
+            )
             submitted_knn = st.form_submit_button("Generate images")
 
     # Write out usage instructions at app start
@@ -156,8 +171,7 @@ def main():
 
         # Collect and show results
         with main_container.container():
-            match_images_to_rows(df, query_image_files)
-            generate_images(df, query_image_files, k_nearest)
+            generate_images(df, query_image_files, k_nearest, scaling_factor)
 
 
 if __name__ == "__main__":

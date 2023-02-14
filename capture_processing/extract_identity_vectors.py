@@ -6,14 +6,11 @@ import sqlalchemy as db
 from loguru import logger
 from tqdm import tqdm
 
-from capture_processing.inference_model import get_inference_model
-from inference_model import InferenceModel
-
-# Suppress TensorFlow warnings
+from capture_processing.inference_model import get_inference_model, InferenceModel
 from utilities.utilities import (
     BATCH_SIZE,
+    fetch_images_from_lmdb,
     initialize_faiss_indices,
-    prepare_batch,
     save_indices_to_lmdb,
     SqlQuery,
     update_indices,
@@ -39,17 +36,23 @@ def fill_indices_with_identity_vectors_of_previous_captures(
         )
         with tqdm(total=total_batches) as pbar:
             for result_batch in result_generator:
-                result_df = pd.DataFrame(result_batch)
 
-                batch_df = prepare_batch(result_df)
+                result_df = pd.DataFrame(result_batch)
+                image_bytes = pd.Series(
+                    fetch_images_from_lmdb(result_df["lmdb_key"]), index=result_df.index
+                )
+                batch_df, image_bytes = inference_model.prepare_batch(
+                    result_df, image_bytes
+                )
                 if batch_df is None:
                     pbar.update(1)
                     continue
 
-                identity_vectors, ids, grids = inference_model.predict(batch_df)
+                identity_vectors, ids, grids = inference_model.predict(
+                    batch_df, image_bytes
+                )
                 update_indices(indices, identity_vectors, ids, grids)
                 pbar.update(1)
-                break
 
         # Close db cursor after iteration ends
         cursor_result.close()
