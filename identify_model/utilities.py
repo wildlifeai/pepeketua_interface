@@ -1,15 +1,11 @@
-from io import BytesIO
+from typing import Dict
 
-import cv2
 import numpy as np
-import pandas as pd
-import tensorflow as tf
-from PIL import Image
-
-from utilities.utilities import force_image_to_be_rgb
 
 
-def get_bbox_corners(landmarks, delta=5):
+def get_bbox_coords(
+    landmarks: Dict[str, float], delta: int = 5, width_height_format: bool = False
+):
     x_annots = [
         landmarks["x_Left_eye"],
         landmarks["x_Left_front_leg"],
@@ -33,20 +29,12 @@ def get_bbox_corners(landmarks, delta=5):
         np.min(y_annots),
         np.max(y_annots),
     )
-    annots_extreme_4 = xmin - delta, ymin - delta, xmax + delta, ymax + delta
-    return annots_extreme_4
+    xmin, ymin, xmax, ymax = xmin - delta, ymin - delta, xmax + delta, ymax + delta
 
-
-def preprocess_ims(image_df: pd.DataFrame) -> tf.Tensor:
-    images_tf = []
-    dict_df = image_df.to_dict("records")
-    for row in dict_df:
-        with Image.open(BytesIO(row["image_bytes"])) as im:
-            im = force_image_to_be_rgb(im)
-            crop_bbox = get_bbox_corners(row, delta=5)
-            im = im.crop(crop_bbox)
-            im = cv2.resize(np.array(im), (224, 224), interpolation=cv2.INTER_AREA)
-            tf_im = tf.convert_to_tensor(im, dtype=tf.float32)
-            tf_im = tf.expand_dims(tf_im, axis=0)
-            images_tf.append(tf_im)
-    return tf.concat(images_tf, axis=0)
+    if width_height_format:
+        # Convert bbox coords to (xmin, ymin, width, height) format, rounding them to closest int
+        width = xmax - xmin
+        height = ymax - ymin
+        return tuple(map(round, (xmin, ymin, width, height)))
+    else:
+        return xmin, ymin, xmax, ymax

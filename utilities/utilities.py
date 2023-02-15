@@ -1,3 +1,4 @@
+import time
 from io import BytesIO
 from os.path import join
 from typing import Dict, List, Optional, Tuple, Union
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 import sqlalchemy as db
 import streamlit as st
+import turbojpeg
 from loguru import logger
 from PIL import Image
 from sqlalchemy import create_engine
@@ -15,16 +17,17 @@ from utilities.lmdb_classes import LmdbReader, LmdbWriter
 
 """Various global variables used in the inference process"""
 BATCH_SIZE = 32
-IMAGE_SIZE = (224, 224)
-ROT_IMAGE_SIZE = (128, 128)
+CHUNK_SIZE = BATCH_SIZE // 8
+KP_ID_MODEL_INPUT_IMAGE_SIZE = (224, 224)
+ROT_MODEL_INPUT_IMAGE_SIZE = (128, 128)
 PHOTO_PATH = "pepeketua_id"
 LMDB_PATH = join(PHOTO_PATH, "lmdb")
 ZIP_NAMES = [
     "whareorino_a.zip",
-    "whareorino_b.zip",
-    "whareorino_c.zip",
-    "whareorino_d.zip",
-    "pukeokahu.zip",
+    # "whareorino_b.zip",
+    # "whareorino_c.zip",
+    # "whareorino_d.zip",
+    # "pukeokahu.zip",
 ]
 SQL_SERVER_STRING = "postgresql://lioruzan:nyudEce5@localhost/frogs"
 WHAREORINO_EXCEL_FILE = join(
@@ -39,7 +42,28 @@ LANDMARK_MODEL = "model_weights/landmark_model_714"
 ROTATION_MODEL = "model_weights/rotation_model_weights_10"
 IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
 EMBEDDING_LENGTH = 64
-DEFAULT_K_NEAREST = 3
+DEFAULT_K_NEAREST = 5
+
+jpeg = turbojpeg.TurboJPEG()
+
+
+class SqlQuery:
+    """A simple class used to query our SQL server"""
+
+    def __init__(self):
+        self.engine = create_engine(SQL_SERVER_STRING)
+        self.metadata = db.MetaData()
+
+    def __enter__(self):
+        self.connection = self.engine.connect()
+        frogs = db.Table(
+            "frogs", self.metadata, autoload=True, autoload_with=self.connection
+        )
+        return self.connection, frogs
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.connection.close()
+        self.engine.dispose()
 
 
 def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
@@ -50,12 +74,7 @@ def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
         return image_list
 
 
-def get_image_size(image_bytes: bytes) -> Tuple:
-    with Image.open(BytesIO(image_bytes)) as im:
-        return im.width, im.height
-
-
-def force_image_to_be_rgb(image: Image) -> Image:
+def force_image_to_rgb(image: Image) -> Image:
     """Try to force image to be RGB, we don't support other modes"""
     if image.mode != "RGB":
         try:
@@ -68,30 +87,17 @@ def force_image_to_be_rgb(image: Image) -> Image:
     return image
 
 
-def prepare_batch(batch_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """
-    Get and return images for all rows that have non-NaN "filepath" entries, None if there aren't any.
-    :param batch_df: df containing all frog information, including lmdb_key.
-                     Can contain existing image_bytes if images were loaded from an
-                     external source (such as uploaded files)
-    :return:
-    """
-    if "image_bytes" not in batch_df:
-        batch_df.loc[:, "image_bytes"] = fetch_images_from_lmdb(batch_df["lmdb_key"])
+def time_it(func):
+    """Simple decorator used to time functions and print their runtime"""
 
-    if bool(batch_df["image_bytes"].any()) is False:
-        return None
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        logger.debug(f"{func.__name__} took {end - start:.6f} seconds")
+        return result
 
-    # Filter rows with no images
-    batch_df = batch_df[batch_df["image_bytes"].notna()]
-
-    # Populate size columns
-    batch_df.loc[:, ["width_size", "height_size"]] = list(
-        map(get_image_size, batch_df["image_bytes"])
-    )
-    # For later calculations
-    batch_df.reset_index(drop=True, inplace=True)
-    return batch_df
+    return wrapper
 
 
 def initialize_faiss_index():
@@ -140,27 +146,28 @@ def load_faiss_indices_from_lmdb() -> Dict[str, faiss.Index]:
     return indices
 
 
-def display_image_and_k_nn(row_num: int, image_bytes: bytes, k_nn: List[int]):
-    st.write(
-        f"# Displaying frog image {row_num} and it's {len(k_nn)} Nearest Neighbors"
-    )
-    with Image.open(BytesIO(image_bytes)) as image:
-        st.image(image)
-
-    rows, images = get_row_and_image_by_id(k_nn)
-    st.image(images)
-
-    # Close images
-    list(map(lambda im: im.close(), images))
+@st.experimental_memo
+def get_image(
+    image_bytes: bytes, scaling_factor: Optional[Tuple[int, int]] = None
+) -> Image.Image:
+    try:
+        image = jpeg.decode(
+            image_bytes, turbojpeg.TJPF_RGB, scaling_factor=scaling_factor
+        )
+        if image.shape[2] != 3:
+            raise ValueError
+        else:
+            return image
+    except ValueError:
+        logger.warning(
+            "get_image() tried opening an image that isn't RGB. Trying to force it to be RGB..."
+        )
+        image = force_image_to_rgb(Image.open(BytesIO(image_bytes)))
+        return image
 
 
 @st.experimental_memo
-def get_image(image_bytes: bytes) -> Image.Image:
-    return force_image_to_be_rgb(Image.open(BytesIO(image_bytes)))
-
-
-@st.experimental_memo
-def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, Image.Image]:
+def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, bytes]:
     with SqlQuery() as (connection, frogs):
         statement = db.select(frogs).where(frogs.c.id == id)
         result = connection.execute(statement)
@@ -169,30 +176,10 @@ def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, Image.
     with LmdbReader(LMDB_PATH) as reader:
         image_bytes = reader.read(row.at[0, "lmdb_key"].encode())
 
-    image = get_image(image_bytes)
-    return row, image
+    return row, image_bytes
 
 
 @st.experimental_singleton
 def get_usage_instructions():
     with open("utilities/USAGE.md", "r") as file:
         return file.read()
-
-
-class SqlQuery:
-    """A simple class used to query our SQL server"""
-
-    def __init__(self):
-        self.engine = create_engine(SQL_SERVER_STRING)
-        self.metadata = db.MetaData()
-
-    def __enter__(self):
-        self.connection = self.engine.connect()
-        frogs = db.Table(
-            "frogs", self.metadata, autoload=True, autoload_with=self.connection
-        )
-        return self.connection, frogs
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.connection.close()
-        self.engine.dispose()

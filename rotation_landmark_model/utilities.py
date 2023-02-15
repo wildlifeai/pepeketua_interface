@@ -8,25 +8,22 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from utilities.utilities import BATCH_SIZE, force_image_to_be_rgb
+from utilities.utilities import BATCH_SIZE, force_image_to_rgb
 
-# Columns in prediction df, ordered
-ORDERED_LANDMARK_UNNAMED_COLS = [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    "width_size",
-    "height_size",
-    "rotation",
+"""Landmark column names, also used to infer order of landmark columns"""
+LANDMARK_COL_NAMES = [
+    "x_Left_eye",
+    "y_Left_eye",
+    "x_Left_front_leg",
+    "y_Left_front_leg",
+    "x_Right_eye",
+    "y_Right_eye",
+    "x_Right_front_leg",
+    "y_Right_front_leg",
+    "x_Tip_of_snout",
+    "y_Tip_of_snout",
+    "x_Vent",
+    "y_Vent",
 ]
 
 
@@ -48,7 +45,7 @@ def debug_landmark_labels(pred_df: pd.DataFrame, labels_column_names: List[str])
     # Save predictions on original size
     for j, image_bytes in enumerate(pred_df["image_bytes"]):
         with Image.open(BytesIO(image_bytes)) as image_file:
-            image_file = force_image_to_be_rgb(image_file)
+            image_file = force_image_to_rgb(image_file)
             im = cv2.cvtColor(np.array(image_file), cv2.COLOR_RGB2BGR)
         labels = pred_df.iloc[j][labels_column_names].to_list()
         thickness = math.ceil(pred_df.iloc[j].height_size / 224) + 1
@@ -77,7 +74,7 @@ def show_labels(
 
     # Save the image
     nn = np.random.randint(0, 1000)
-    image_path = join("landmark_images", "new_image_{0}.jpg").format(nn)
+    image_path = join("new_image_{0}.jpg").format(nn)
     cv2.imwrite(image_path, img)
     # show_image(img)
     return img
