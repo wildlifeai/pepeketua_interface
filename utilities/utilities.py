@@ -17,7 +17,6 @@ from utilities.lmdb_classes import LmdbReader, LmdbWriter
 
 """Various global variables used in the inference process"""
 BATCH_SIZE = 32
-CHUNK_SIZE = BATCH_SIZE // 8
 KP_ID_MODEL_INPUT_IMAGE_SIZE = (224, 224)
 ROT_MODEL_INPUT_IMAGE_SIZE = (128, 128)
 PHOTO_PATH = "pepeketua_id"

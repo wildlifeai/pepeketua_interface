@@ -29,7 +29,7 @@ def create_final_labels(df: pd.DataFrame):
     # This requires some fake images in same size as original pictures
     fake_images = _create_fake_images(image_height, image_width)
     _, resized_rotated_keypoints = rotate_images_specifically(
-        -rotations, fake_images, kps=resized_keypoints
+        -rotations, fake_images, kps_list=resized_keypoints
     )
 
     resized_rotated_keypoints = np.array(resized_rotated_keypoints)
@@ -95,7 +95,7 @@ def _rotate_single_image(
     return rotated_image, rotated_kps
 
 
-def rotate_images_specifically_testing(
+def rotate_images_specifically(
     rotations: np.array,
     images: Union[np.array, List[np.array]],
     kps_list: Optional[np.array] = None,
@@ -103,16 +103,18 @@ def rotate_images_specifically_testing(
 
     rotations = rotations.tolist()
 
-    if isinstance(images, type(np.array([]))):
-        images = images.tolist()
-        concatenate_images = True
-    else:
+    if isinstance(images, list):
+        # In this case the images list is of full sized images and have different shapes
+        # So no concatenation possible or necessary
         concatenate_images = False
+    else:
+        images = [images[i : i + 1, :] for i in range(images.shape[0])]
+        concatenate_images = True
 
     if kps_list is None:
         kps_list = [None] * len(rotations)
     else:
-        kps_list = [kps.tolist() for kps in kps_list.tolist()]
+        kps_list = kps_list.tolist()
 
     rotated_images, rotated_kps = zip(
         *list(map(_rotate_single_image, images, rotations, kps_list))
@@ -127,10 +129,10 @@ def rotate_images_specifically_testing(
         return rotated_images
 
 
-def rotate_images_specifically(
+def rotate_images_specifically_deprecated(
     rotations: np.array,
     images: Union[np.array, List[np.array]],
-    kps: Optional[List[Keypoint]] = None,
+    kps_list: Optional[List[Keypoint]] = None,
 ) -> Union[List[np.array], np.array]:
     for i, rot in enumerate(rotations):
 
@@ -139,16 +141,16 @@ def rotate_images_specifically(
         else:
             img = images[i : i + 1, :]
 
-        if kps is not None:
-            kps_img = [kps[i].tolist()]
+        if kps_list is not None:
+            kps_img = [kps_list[i].tolist()]
             img, kps_img = iaa.Affine(rotate=rot)(images=img, keypoints=kps_img)
-            kps[i] = np.array(kps_img[0])
+            kps_list[i] = np.array(kps_img[0])
         else:
             img = iaa.Affine(rotate=rot)(images=img)
 
         images[i] = img
 
-    if kps is not None:
-        return images, kps
+    if kps_list is not None:
+        return images, kps_list
 
     return images

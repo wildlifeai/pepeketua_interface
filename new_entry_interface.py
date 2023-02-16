@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from capture_processing.inference_model import get_inference_model
+from inference_model.inference_model import get_inference_model
 from utilities.utilities import (
     DEFAULT_K_NEAREST,
     get_image,
@@ -44,65 +44,98 @@ def match_images_to_rows(
 
 
 def generate_images(
-    df: pd.DataFrame,
+    query_df: pd.DataFrame,
     query_images: List[UploadedFile],
     k_nearest: int,
     scaling_factor: Tuple[int, int],
 ):
-    df, image_bytes = match_images_to_rows(df, query_images)
-    # Get image contents and start process of identity vector collection
+    query_df, query_image_bytes = match_images_to_rows(query_df, query_images)
+
+    grids, new_id_vectors, query_image_bytes = calculate_query_id_vectors(
+        query_df, query_image_bytes
+    )
+
+    nn_ids, distances_list, query_indices = [], [], []
+
+    # Search for nearest neighbors to query vectors
+    grid_faiss_indices = load_faiss_indices_from_lmdb()
+    for grid_name, group in grids.groupby(grids):
+        current_grid_query_indices = group.index
+        query_vectors = new_id_vectors[current_grid_query_indices]
+
+        grid_faiss_index = grid_faiss_indices[grid_name]
+        distances, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
+
+        distances_list.append(distances)
+        nn_ids.append(nn)
+        query_indices.append(current_grid_query_indices)
+
+    distances = np.concatenate(distances_list)
+    nn_ids = np.concatenate(nn_ids)
+    query_indices = np.concatenate(query_indices)
+    nn_df = pd.DataFrame(
+        data={"distances": distances.tolist(), "nn_ids": nn_ids.tolist()},
+        index=query_indices,
+    ).sort_index()
+
+    display_queries_and_nn_images(query_df, query_image_bytes, nn_df, scaling_factor)
+
+
+@st.experimental_memo
+def calculate_query_id_vectors(df, query_image_bytes):
     # Load inference model and calculate query id vectors
     inference_model = get_inference_model()
-    batch_df, image_bytes = inference_model.prepare_batch(df, image_bytes)
-    new_id_vectors, _, grids = inference_model.predict(batch_df, image_bytes)
-
-    grid_faiss_indices = load_faiss_indices_from_lmdb()
-
-    # Display query-nn images by grid
-    for grid_name, group in grids.groupby(grids):
-        st.write(f"{grid_name} results.")
-
-        query_indices = group.index
-        query_vectors = new_id_vectors[query_indices]
-
-        # Search for nearest neighbors to query vectors
-        grid_faiss_index = grid_faiss_indices[grid_name]
-        _, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
-
-        display_queries_and_nn_images(image_bytes, nn, query_indices, scaling_factor)
+    batch_df, query_image_bytes = inference_model.prepare_batch(df, query_image_bytes)
+    new_id_vectors, _, grids = inference_model.predict(batch_df, query_image_bytes)
+    return grids, new_id_vectors, query_image_bytes
 
 
 def display_queries_and_nn_images(
-    image_bytes: pd.Series,
-    nn: np.array,
-    query_indices: pd.Index,
+    query_df: pd.DataFrame,
+    query_image_bytes: pd.Series,
+    nn_df: pd.DataFrame,
     scaling_factor: Tuple[int, int],
 ):
-    # For each query, display the query image on the left, then NN image slider on the right
-    for j, batch_idx in enumerate(query_indices):
+    # Set up main screen- two columns with three sections in each
+    container = st.container()
+    left_column, right_column = container.columns(2)
+    top_right, mid_right, bottom_right = (
+        right_column.empty(),
+        right_column.empty(),
+        right_column.container(),
+    )
+    top_left, mid_left, bottom_left = (
+        left_column.empty(),
+        left_column.empty(),
+        left_column.container(),
+    )
 
-        # Ordering of containers and columns
-        container = st.container()
-        left_column, right_column = container.columns(2)
+    # Left column showing the query images
+    query_index = mid_left.selectbox(
+        label="Select query to show",
+        options=nn_df.index,
+        format_func=lambda q: query_df.loc[q, "filepath"],
+    )
+    top_left.image(
+        get_image(query_image_bytes.loc[query_index], scaling_factor=scaling_factor),
+    )
+    bottom_left_expander = bottom_left.expander("Show info")
+    bottom_left_expander.dataframe(
+        query_df.loc[query_index, :], use_container_width=True
+    )
 
-        # Show query image on left column
-        im = get_image(image_bytes.loc[batch_idx], scaling_factor=scaling_factor)
-        left_column.image(im)
-
-        # Display the NN image on top and the slider on the bottom
-        top, bottom = right_column.empty(), right_column.empty()
-
-        nn_indices = nn[j].tolist()
-        nn_number = bottom.slider(
-            label="Select nearest neighbor to view.",
-            min_value=1,
-            max_value=len(nn_indices),
-            key=j,
-        )
-
-        # Render the selected nearest neighbor to the query
-        _, single_image_bytes = get_row_and_image_by_id(nn_indices[nn_number - 1])
-        top.image(get_image(single_image_bytes, scaling_factor=scaling_factor))
+    # Right column showing nearest neighbor images
+    nn_indices = nn_df.loc[query_index, "nn_ids"]
+    nn_number = mid_right.select_slider(
+        label="Select nearest neighbor to view.",
+        options=range(1, len(nn_indices) + 1),
+    )
+    captured_frog_row, captured_frog_image_bytes = get_row_and_image_by_id(
+        nn_indices[nn_number - 1]
+    )
+    top_right.image(get_image(captured_frog_image_bytes, scaling_factor=scaling_factor))
+    bottom_right_expander = bottom_right.expander("Show info")
+    bottom_right_expander.dataframe(captured_frog_row.T, use_container_width=True)
 
 
 def write_imageless_rows(image_indices: pd.Series, full_uploaded_excel: pd.DataFrame):
@@ -116,7 +149,6 @@ def write_imageless_rows(image_indices: pd.Series, full_uploaded_excel: pd.DataF
 
 
 def main():
-
     # Show sidebar form
     with st.sidebar:
         with st.form(key="Uploader form"):

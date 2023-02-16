@@ -6,7 +6,7 @@ import sqlalchemy as db
 from loguru import logger
 from tqdm import tqdm
 
-from capture_processing.inference_model import get_inference_model, InferenceModel
+from inference_model.inference_model import get_inference_model, InferenceModel
 from utilities.utilities import (
     BATCH_SIZE,
     fetch_images_from_lmdb,

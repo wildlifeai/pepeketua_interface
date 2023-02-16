@@ -1,6 +1,7 @@
 from loguru import logger
 
-from capture_processing import clean_save_old_capture_data, extract_identity_vectors
+import extract_identity_vectors
+from previous_capture_processing import clean_save_old_capture_data
 
 if __name__ == "__main__":
     # Log to disk

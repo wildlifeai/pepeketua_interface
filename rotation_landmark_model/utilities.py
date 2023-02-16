@@ -1,4 +1,5 @@
 import math
+import os
 from io import BytesIO
 from os.path import join
 from typing import List
@@ -42,7 +43,8 @@ def positive_deg_theta(theta):
 
 
 def debug_landmark_labels(pred_df: pd.DataFrame, labels_column_names: List[str]):
-    # Save predictions on original size
+    """Save full size images with predicted landmark labels on them for visualization"""
+    os.makedirs("debug", exist_ok=True)
     for j, image_bytes in enumerate(pred_df["image_bytes"]):
         with Image.open(BytesIO(image_bytes)) as image_file:
             image_file = force_image_to_rgb(image_file)
@@ -74,7 +76,7 @@ def show_labels(
 
     # Save the image
     nn = np.random.randint(0, 1000)
-    image_path = join("new_image_{0}.jpg").format(nn)
+    image_path = join("debug", "new_image_{0}.jpg").format(nn)
     cv2.imwrite(image_path, img)
     # show_image(img)
     return img
