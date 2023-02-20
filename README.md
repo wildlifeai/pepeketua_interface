@@ -14,23 +14,18 @@ Lior Uzan carried out this work, with the support of Bar Vinograd and Victor Ant
 *** https://www.markdownguide.org/basic-syntax/#reference-style-links
 -->
 [![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 
 ## Overview
 
-TBC
+This project runs some scripts to process previously identified frog photos, then run a GUI that helps biologists identify individual frogs. The interface uses deep learning tools behind the scenes to extract ID vectors from new frogs and compares them to previously identified and extracted ID vectors using a nearest neighbor search.
 
 ## Requirements
 
-* [Python 3.9+](https://www.python.org/)
-* TBC
+* Docker
 
-## How to use
-
-### First parse existing frog data to Postgres and LMDB databases, then get frog identity vectors for this dataset
+## Usage
 
 1. Create folders called `pepeketua_id`, and `model_weights` in this directory.
 2. Place the two excel sheets in `pepeketua_id`.
@@ -44,10 +39,12 @@ TBC
 
 ## Result
 
-The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures
-to a LMDB. Then it extracts the id vectors from the frog images and saves those to the LMDB as well.
+- The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures
+to a LMDB. 
+- Then it extracts the id vectors from the frog images and saves those to Faiss indices, one per grid.
+- Then the Streamlit server is started (GUI) and is accessible at [this url](http://pepeketua_interface:8501)
 
-The script will save some csv files to the shared folder:
+## The script will save some csvs and log files to the shared folder:
 
 - `parse_previous_captures.log`: Log file for script outputs
 - `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.

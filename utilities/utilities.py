@@ -23,10 +23,10 @@ PHOTO_PATH = "pepeketua_id"
 LMDB_PATH = join(PHOTO_PATH, "lmdb")
 ZIP_NAMES = [
     "whareorino_a.zip",
-    # "whareorino_b.zip",
-    # "whareorino_c.zip",
-    # "whareorino_d.zip",
-    # "pukeokahu.zip",
+    "whareorino_b.zip",
+    "whareorino_c.zip",
+    "whareorino_d.zip",
+    "pukeokahu.zip",
 ]
 SQL_SERVER_STRING = "postgresql://lioruzan:nyudEce5@localhost/frogs"
 WHAREORINO_EXCEL_FILE = join(
@@ -41,7 +41,7 @@ LANDMARK_MODEL = "model_weights/landmark_model_714"
 ROTATION_MODEL = "model_weights/rotation_model_weights_10"
 IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
 EMBEDDING_LENGTH = 64
-DEFAULT_K_NEAREST = 5
+DEFAULT_K_NEAREST = 10
 
 jpeg = turbojpeg.TurboJPEG()
 

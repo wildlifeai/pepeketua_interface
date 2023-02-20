@@ -78,8 +78,13 @@ class InferenceModel:
 
     @staticmethod
     def get_image_size(image_bytes: bytes) -> Tuple:
-        # Decode the JPEG header to get the image dimensions
-        width, height, _, _ = jpeg.decode_header(image_bytes)
+        try:
+            # Decode the JPEG header to get the image dimensions
+            width, height, _, _ = jpeg.decode_header(image_bytes)
+        except Exception:
+            # In case file is not JPEG but some other format
+            with Image.open(BytesIO(image_bytes)) as image_file:
+                width, height = image_file.size
         return width, height
 
     @staticmethod
