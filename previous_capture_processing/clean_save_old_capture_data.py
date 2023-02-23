@@ -415,7 +415,7 @@ def run():
 
     """Prepare information related to the photos"""
 
-    frog_photo_file_list = expand_photo_file_list_df(PHOTO_PATH, ZIP_NAMES)
+    frog_photo_file_list_df = expand_photo_file_list_df(PHOTO_PATH, ZIP_NAMES)
 
     frog_id_df, whareorino_df, pukeokahu_df = load_excel_spreadsheets(
         PUKEOKAHU_EXCEL_FILE, WHAREORINO_EXCEL_FILE
@@ -428,25 +428,29 @@ def run():
     frog_id_df = filter_faulty_entries(frog_id_df)
 
     """Match the frog identification data to the photo file paths data"""
-    merged_frog_id_filepath = frog_id_df.merge(
-        frog_photo_file_list, on=["Capture photo code", "Grid"], how="left"
+    merged_frog_id_filepath_df = frog_id_df.merge(
+        frog_photo_file_list_df, on=["Capture photo code", "Grid"], how="left"
     ).reset_index(drop=True)
 
     """
     Work in progress to clean and tidy out the data
     """
-    merged_frog_id_filepath = try_to_eliminate_filepath_nans(
-        frog_photo_file_list, merged_frog_id_filepath
+    merged_frog_id_filepath_df = try_to_eliminate_filepath_nans(
+        frog_photo_file_list_df, merged_frog_id_filepath_df
     )
 
-    merged_frog_id_filepath = find_incorrect_filepaths(merged_frog_id_filepath)
+    merged_frog_id_filepath_df = find_incorrect_filepaths(merged_frog_id_filepath_df)
 
     # Add index as "id" for future reference
-    merged_frog_id_filepath.loc[:, "id"] = merged_frog_id_filepath.index.to_series()
+    merged_frog_id_filepath_df.loc[
+        :, "id"
+    ] = merged_frog_id_filepath_df.index.to_series()
 
-    merged_frog_id_filepath = save_photos_to_lmdb(merged_frog_id_filepath, PHOTO_PATH)
+    merged_frog_id_filepath_df = save_photos_to_lmdb(
+        merged_frog_id_filepath_df, PHOTO_PATH
+    )
 
-    save_to_postgres(merged_frog_id_filepath, SQL_SERVER_STRING)
+    save_to_postgres(merged_frog_id_filepath_df, SQL_SERVER_STRING)
 
 
 if __name__ == "__main__":

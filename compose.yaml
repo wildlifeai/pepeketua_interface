@@ -1,0 +1,19 @@
+services:
+  sql-server:
+    image: postgres:15.2
+    restart: always
+    environment:
+      - POSTGRES_PASSWORD: PepeketuaFrogs
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  pepeketua-interface:
+    image:
+    restart: always
+    volumes:
+      - type:
+        source: ./pepeketua_interface_files
+        target: /root/pepeketua_interface/files
+
+volumes:
+  db-data:
