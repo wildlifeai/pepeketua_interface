@@ -11,7 +11,7 @@ from utilities.utilities import (
     BATCH_SIZE,
     fetch_images_from_lmdb,
     initialize_faiss_indices,
-    save_indices_to_lmdb,
+    save_faiss_indices_to_lmdb,
     SqlQuery,
     update_indices,
 )
@@ -72,7 +72,7 @@ def run():
     for grid, index in indices.items():
         logger.info(f"Wrote {index.ntotal} vectors to {grid}'s Index")
 
-    save_indices_to_lmdb(indices)
+    save_faiss_indices_to_lmdb(indices)
     logger.info("Done saving all identity vectors to disk.")
 
 

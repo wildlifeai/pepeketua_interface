@@ -12,7 +12,7 @@ from tqdm import tqdm
 from utilities.lmdb_classes import LmdbWriter
 from utilities.utilities import (
     LMDB_PATH,
-    PHOTO_PATH,
+    FILES_PATH,
     PUKEOKAHU_EXCEL_FILE,
     SQL_SERVER_STRING,
     WHAREORINO_EXCEL_FILE,
@@ -415,7 +415,7 @@ def run():
 
     """Prepare information related to the photos"""
 
-    frog_photo_file_list_df = expand_photo_file_list_df(PHOTO_PATH, ZIP_NAMES)
+    frog_photo_file_list_df = expand_photo_file_list_df(FILES_PATH, ZIP_NAMES)
 
     frog_id_df, whareorino_df, pukeokahu_df = load_excel_spreadsheets(
         PUKEOKAHU_EXCEL_FILE, WHAREORINO_EXCEL_FILE
@@ -447,7 +447,7 @@ def run():
     ] = merged_frog_id_filepath_df.index.to_series()
 
     merged_frog_id_filepath_df = save_photos_to_lmdb(
-        merged_frog_id_filepath_df, PHOTO_PATH
+        merged_frog_id_filepath_df, FILES_PATH
     )
 
     save_to_postgres(merged_frog_id_filepath_df, SQL_SERVER_STRING)

@@ -19,8 +19,8 @@ from utilities.lmdb_classes import LmdbReader, LmdbWriter
 BATCH_SIZE = 32
 KP_ID_MODEL_INPUT_IMAGE_SIZE = (224, 224)
 ROT_MODEL_INPUT_IMAGE_SIZE = (128, 128)
-PHOTO_PATH = "pepeketua_id"
-LMDB_PATH = join(PHOTO_PATH, "lmdb")
+FILES_PATH = "files"
+LMDB_PATH = join(FILES_PATH, "lmdb")
 ZIP_NAMES = [
     "whareorino_a.zip",
     "whareorino_b.zip",
@@ -28,18 +28,13 @@ ZIP_NAMES = [
     "whareorino_d.zip",
     "pukeokahu.zip",
 ]
-SQL_SERVER_STRING = "postgresql://lioruzan:nyudEce5@localhost/frogs"
-WHAREORINO_EXCEL_FILE = join(
-    PHOTO_PATH,
-    "Whareorino frog monitoring data 2005 onwards CURRENT FILE - DOCDM-106978.xls",
-)
-PUKEOKAHU_EXCEL_FILE = join(
-    PHOTO_PATH, "Pukeokahu Monitoring Data 2006 onwards - DOCDM-95563.xls"
-)
+SQL_SERVER_STRING = "postgresql://postgres:PepeketuaFrogs@sql-server/postgres"
+WHAREORINO_EXCEL_FILE = join(FILES_PATH, "whareorino.xls")
+PUKEOKAHU_EXCEL_FILE = join(FILES_PATH, "pukeokahu.xls")
 GRID_NAMES = ["Grid A", "Grid B", "Grid C", "Grid D", "Pukeokahu Frog Monitoring"]
-LANDMARK_MODEL = "model_weights/landmark_model_714"
-ROTATION_MODEL = "model_weights/rotation_model_weights_10"
-IDENTIFY_MODEL = "model_weights/ep29_vloss0.0249931520129752_emb.ckpt"
+LANDMARK_MODEL = join(FILES_PATH, "landmark_model_714")
+ROTATION_MODEL = join(FILES_PATH, "rotation_model_weights_10")
+IDENTIFY_MODEL = join(FILES_PATH, "ep29_vloss0.0249931520129752_emb.ckpt")
 EMBEDDING_LENGTH = 64
 DEFAULT_K_NEAREST = 10
 
@@ -127,7 +122,7 @@ def update_indices(
     return indices
 
 
-def save_indices_to_lmdb(indices: Dict[str, faiss.Index]):
+def save_faiss_indices_to_lmdb(indices: Dict[str, faiss.Index]):
     for grid, index in indices.items():
         index_bytes = faiss.serialize_index(index).tobytes()
         with LmdbWriter(LMDB_PATH) as writer:
@@ -172,8 +167,12 @@ def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, bytes]
         result = connection.execute(statement)
         row = pd.DataFrame(result.fetchall())
 
-    with LmdbReader(LMDB_PATH) as reader:
-        image_bytes = reader.read(row.at[0, "lmdb_key"].encode())
+    try:
+        with LmdbReader(LMDB_PATH) as reader:
+            image_bytes = reader.read(row.at[0, "lmdb_key"].encode())
+    except Exception as e:
+        logger.error(f"Error fetching id {id} from Postgres or LMDB, id not found!")
+        raise e
 
     return row, image_bytes
 
