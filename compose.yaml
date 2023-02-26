@@ -1,0 +1,28 @@
+services:
+  sql-server:
+    image: postgres:15.2
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: "PepeketuaFrogs"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  pepeketua-interface:
+    image: python:3.9
+    build:
+      context: https://github.com/wildlifeai/pepeketua_interface/tree/dockerization
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - type: bind
+        source: ./pepeketua_interface_files
+        target: /app/files
+    #entrypoint:
+    #  - streamlit
+    #  - run
+    #  - new_entry_interface.py
+    #  - --server.port=80
+
+volumes:
+  db-data:

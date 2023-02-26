@@ -25,26 +25,34 @@ This project runs some scripts to process previously identified frog photos, the
 
 * Docker
 
+## To start the app
+
+1. Create a folder called `pepeketua_interface_files`.
+2. Place the two previous capture excel files in that directory, name them `wharerino.xls` and `pukeokahu.xls`. 
+3. Place the photo zips `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in 
+   the same directory.
+4. Download all model directories from 
+   [here](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them in 
+   the `pepeketua_interface_files` directory as well.
+5. Download [compose.yaml](https://github.com/wildlifeai/pepeketua_interface/blob/main/compose.yaml) to the directory 
+   containing `pepeketua_interface_files`
+6. Open a command line terminal at the directory containing `pepeketua_interface_files`, and type in and execute the 
+   command `docker compose up` 
+
 ## Usage
 
-1. Create folders called `pepeketua_id`, and `model_weights` in this directory.
-2. Place the two excel sheets in `pepeketua_id`.
-3. Place the zip files `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in
-   the directory `pepeketua_id`
-4. Download all model dirs
-   from [this url](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them
-   in `model_weights`
-5. Run the docker_start.sh script: ``docker_start.sh <whareorino_excel_path> <pukeokahu_excel_path>`` and wait for the
-   processing to be done.
+After the dockers from the previous section finish processing the old capture data, the app will be available at 
+[this url][pepeketua_interface_url].  
+See [this presentation](http://bit.ly/3SmUsj0) to learn about the app and how to use it.  
 
-## Result
+## How it works
 
-- The script parses all frog sightings from the excel sheets, saves it to the SQL server and saves corresponding pictures
+- The scripts clean all frog sightings from the excel sheets, save them to a SQL server and save corresponding pictures
 to a LMDB. 
 - Then it extracts the id vectors from the frog images and saves those to Faiss indices, one per grid.
-- Then the Streamlit server is started (GUI) and is accessible at [this url](http://pepeketua_interface:8501)
+- Then the Streamlit server is started (GUI) and is accessible at [this url][pepeketua_interface_url]
 
-## The script will save some csvs and log files to the shared folder:
+## Extra files saved to the shared folder:
 
 - `parse_previous_captures.log`: Log file for script outputs
 - `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
@@ -69,7 +77,7 @@ have any questions.
 
 [contributors-shield]: https://img.shields.io/github/contributors/wildlifeai/pepeketua_interface.svg?style=for-the-badge
 
-[contributors-url]: https://https://github.com/wildlifeai/pepeketua_interface/graphs/contributors
+[contributors-url]: https://github.com/wildlifeai/pepeketua_interface/graphs/contributors
 
 [forks-shield]: https://img.shields.io/github/forks/wildlifeai/pepeketua_interface.svg?style=for-the-badge
 
@@ -85,6 +93,8 @@ have any questions.
 
 [license-shield]: https://img.shields.io/github/license/wildlifeai/pepeketua_interface.svg?style=for-the-badge
 
-[license-url]: https://github.com/wildlifeai/pepeketua_interface/blob/main/LICENSE.txt
+[license-url]: https://github.com/wildlifeai/pepeketua_interface/blob/main/LICENSE
 
 [contact_info]: contact@wildlife.ai
+
+[pepeketua_interface_url]: http://pepeketua-interface
