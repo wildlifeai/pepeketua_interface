@@ -20,7 +20,7 @@ BATCH_SIZE = 32
 KP_ID_MODEL_INPUT_IMAGE_SIZE = (224, 224)
 ROT_MODEL_INPUT_IMAGE_SIZE = (128, 128)
 FILES_PATH = "files"
-LMDB_PATH = join(FILES_PATH, "lmdb")
+LMDB_PATH = "lmdb"
 ZIP_NAMES = [
     "whareorino_a.zip",
     "whareorino_b.zip",

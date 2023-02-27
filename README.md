@@ -27,16 +27,16 @@ This project runs some scripts to process previously identified frog photos, the
 
 ## To start the app
 
-1. Create a folder called `pepeketua_interface_files`.
+1. Create a folder called `pepeketua_files`.
 2. Place the two previous capture excel files in that directory, name them `wharerino.xls` and `pukeokahu.xls`. 
 3. Place the photo zips `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in 
    the same directory.
 4. Download all model directories from 
    [here](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them in 
-   the `pepeketua_interface_files` directory as well.
+   the `pepeketua_files` directory as well.
 5. Download [compose.yaml](https://github.com/wildlifeai/pepeketua_interface/blob/main/compose.yaml) to the directory 
-   containing `pepeketua_interface_files`
-6. Open a command line terminal at the directory containing `pepeketua_interface_files`, and type in and execute the 
+   containing `pepeketua_files` (a.k.a `../pepeketua_files`)
+6. Open a command line terminal at the directory containing `pepeketua_files`, and type in and execute the 
    command `docker compose up` 
 
 ## Usage
