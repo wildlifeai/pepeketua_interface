@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 from utilities.lmdb_classes import LmdbWriter
 from utilities.utilities import (
-    LMDB_PATH,
     FILES_PATH,
+    LMDB_PATH,
     PUKEOKAHU_EXCEL_FILE,
     SQL_SERVER_STRING,
     WHAREORINO_EXCEL_FILE,
@@ -280,7 +280,9 @@ def try_to_eliminate_filepath_nans(
     logger.info(f"Total number of missing filepaths: {sum(missing_filepaths)}")
 
     # Save the list of rows with missing photos
-    merged_frog_id_filepath[missing_filepaths].to_csv("missing_photos.csv")
+    merged_frog_id_filepath[missing_filepaths].to_csv(
+        join(FILES_PATH, "missing_photos.csv")
+    )
 
     return merged_frog_id_filepath
 
@@ -367,7 +369,7 @@ def find_incorrect_filepaths(
     ]
 
     logger.info(f"There are {len(false_matches)} rows with mismatched filepath.")
-    false_matches.to_csv("incorrect_filepaths.csv")
+    false_matches.to_csv(join(FILES_PATH, "incorrect_filepaths.csv"))
 
     return merged_frog_id_filepath
 
@@ -411,7 +413,7 @@ def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
 
 def run():
     # Log to disk
-    logger.add("parse_previous_captures.log")
+    logger.add(join(FILES_PATH, "parse_previous_captures.log"))
 
     """Prepare information related to the photos"""
 

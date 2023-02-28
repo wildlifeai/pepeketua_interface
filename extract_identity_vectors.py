@@ -1,3 +1,4 @@
+from os.path import join
 from typing import Dict
 
 import faiss
@@ -10,6 +11,7 @@ from inference_model.inference_model import get_inference_model, InferenceModel
 from utilities.utilities import (
     BATCH_SIZE,
     fetch_images_from_lmdb,
+    FILES_PATH,
     initialize_faiss_indices,
     save_faiss_indices_to_lmdb,
     SqlQuery,
@@ -61,6 +63,9 @@ def fill_indices_with_identity_vectors_of_previous_captures(
 
 
 def run():
+    # Log to disk
+    logger.add(join(FILES_PATH, "extract_identity_vectors.log"))
+
     inference_model = get_inference_model()
 
     indices = initialize_faiss_indices()

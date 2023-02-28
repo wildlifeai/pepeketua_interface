@@ -24,45 +24,69 @@ This project runs some scripts to process previously identified frog photos, the
 ## Requirements
 
 * Docker
+* About 16GB of RAM
 
 ## To start the app
 
 1. Create a folder called `pepeketua_files`.
-2. Place the two previous capture excel files in that directory, name them `wharerino.xls` and `pukeokahu.xls`. 
-3. Place the photo zips `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in 
+2. Rename the two previous capture excel files `wharerino.xls` and `pukeokahu.xls`.
+3. Place them in the `pepeketua_files` folder.   
+4. Place the photo zips `whareorino_a.zip` `whareorino_b.zip` `whareorino_c.zip` `whareorino_d.zip` `pukeokahu.zip` in 
    the same directory.
-4. Download all model directories from 
+5. Download all model directories from 
    [here](https://drive.google.com/drive/folders/1_QeCXz151nE_tP-3MCPAq7y1NkbrGd5Q?usp=sharing) and place them in 
    the `pepeketua_files` directory as well.
-5. Download [compose.yaml](https://github.com/wildlifeai/pepeketua_interface/blob/main/compose.yaml) to the directory 
+6. Download [compose.yaml](https://github.com/wildlifeai/pepeketua_interface/blob/main/compose.yaml) to the directory 
    containing `pepeketua_files` (a.k.a `../pepeketua_files`)
-6. Open a command line terminal at the directory containing `pepeketua_files`, and type in and execute the 
-   command `docker compose up` 
+7. Open a command line terminal in `../pepeketua_files`, and type in and execute the 
+   command:  
+   
+   ```shell
+   docker compose run pepeketua-interface python process_previous_captures.py
+   ```  
+   This step should take about an hour to complete.
+8. After the previous step finished running successfully, execute the command  
+   ```shell
+   docker compose up -d
+   ```
+9. Open [http://localhost][pepeketua_interface_url] to access and use the app!
+
+## To close the app
+Open a command line terminal to `../pepeketua_files` and run the command:
+```shell
+docker compose down
+```
 
 ## Usage
 
-After the dockers from the previous section finish processing the old capture data, the app will be available at 
+* After the dockers from the previous section finish processing the old capture data, the app will be available at 
 [this url][pepeketua_interface_url].  
-See [this presentation](http://bit.ly/3SmUsj0) to learn about the app and how to use it.  
+* See [this presentation](http://bit.ly/3SmUsj0) to learn about the app and how to use it.  
+* After you update your capture excel sheets, run 
+  ```bash
+  docker compose run pepeketua-interface python process_previous_captures.py
+  ``` 
+  again to update the internal database!
 
 ## How it works
 
-- The scripts clean all frog sightings from the excel sheets, save them to a SQL server and save corresponding pictures
+- The scripts clean all frog sightings in the excel sheets, saves them to a SQL server and save corresponding pictures
 to a LMDB. 
-- Then it extracts the id vectors from the frog images and saves those to Faiss indices, one per grid.
+- Then it extracts the id vectors from the frog images and saves those to Faiss indices, one per grid (to compare frogs only within their grids).
 - Then the Streamlit server is started (GUI) and is accessible at [this url][pepeketua_interface_url]
 
 ## Extra files saved to the shared folder:
 
-- `parse_previous_captures.log`: Log file for script outputs
-- `incorrect_filepaths.csv`: All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
-- `missing_photos.csv`: All rows that have no "filepath" column value.
+- `pepeketua_files/parse_previous_captures.log` Log for script which processes and saves previous captures to internal db.
+- `pepeketua_files/extract_identity_vectors.log` Log for script which extracts the id vectors from previous capture photos.
+- `pepeketua_files/incorrect_filepaths.csv` All rows where there is a mismatch between the photo path and the the "Frog ID #" column.
+- `pepeketua_files/missing_photos.csv` All rows that have no "filepath" column value.
 
 ## Citation
 
 If you use this code or its models, please cite:
 
-Uzan L, Vinograd B, Anton V (2022). Pepeketua ID - A frog identification
+Uzan L, Vinograd B, Anton V (2023). Pepeketua ID - A frog identification
 app. https://github.com/wildlifeai/pepeketua_interface
 
 ## Collaborations/questions
@@ -97,4 +121,4 @@ have any questions.
 
 [contact_info]: contact@wildlife.ai
 
-[pepeketua_interface_url]: http://pepeketua-interface
+[pepeketua_interface_url]: http://localhost
