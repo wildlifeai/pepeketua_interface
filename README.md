@@ -17,6 +17,8 @@ Lior Uzan carried out this work, with the support of Bar Vinograd and Victor Ant
 [![Issues][issues-shield]][issues-url]
 [![MIT License][license-shield]][license-url]
 
+![App display screen](images/nn_display_screen.png "App display screen")
+
 ## Overview
 
 This project runs some scripts to process previously identified frog photos, then run a GUI that helps biologists identify individual frogs. The interface uses deep learning tools behind the scenes to extract ID vectors from new frogs and compares them to previously identified and extracted ID vectors using a nearest neighbor search.
@@ -24,7 +26,6 @@ This project runs some scripts to process previously identified frog photos, the
 ## Requirements
 
 * Docker
-* About 16GB of RAM
 
 ## To start the app
 
