@@ -1,3 +1,4 @@
+import pickle
 import time
 from io import BytesIO
 from os.path import join
@@ -11,6 +12,7 @@ import streamlit as st
 import turbojpeg
 from loguru import logger
 from PIL import Image
+from sklearn.preprocessing import StandardScaler
 from sqlalchemy import create_engine
 
 from utilities.lmdb_classes import LmdbReader, LmdbWriter
@@ -36,7 +38,9 @@ LANDMARK_MODEL = join(FILES_PATH, "landmark_model_714")
 ROTATION_MODEL = join(FILES_PATH, "rotation_model_weights_10")
 IDENTIFY_MODEL = join(FILES_PATH, "ep29_vloss0.0249931520129752_emb.ckpt")
 EMBEDDING_LENGTH = 64
-DEFAULT_K_NEAREST = 10
+DEFAULT_KNN_VALUE = 10
+MAX_NN_VALUE = 50
+
 
 jpeg = turbojpeg.TurboJPEG()
 
@@ -68,6 +72,12 @@ def fetch_images_from_lmdb(keys: pd.Series) -> List[bytes]:
         return image_list
 
 
+@st.experimental_singleton
+def fetch_scaler_from_lmdb() -> StandardScaler:
+    with LmdbReader(LMDB_PATH) as reader:
+        return pickle.loads(reader.read(b"scaler"))
+
+
 def force_image_to_rgb(image: Image) -> Image:
     """Try to force image to be RGB, we don't support other modes"""
     if image.mode != "RGB":
@@ -92,6 +102,40 @@ def time_it(func):
         return result
 
     return wrapper
+
+
+def to_float(x):
+    """Used to convert unreliable columns to float"""
+    try:
+        return np.float64(x)
+    except:
+        return np.nan
+
+
+class FeatureProcessing:
+    FEATURE_COLUMNS = ["SVL (mm)", "Weight (g)"]
+    FEATURE_AGG_DICT = {col: to_float for col in FEATURE_COLUMNS}
+
+
+def extract_features(rows: pd.DataFrame):
+    features = (
+        rows[FeatureProcessing.FEATURE_COLUMNS]
+        .agg(FeatureProcessing.FEATURE_AGG_DICT)
+        .to_numpy()
+    )
+    return features
+
+
+def transform_features(features: np.array):
+    scaler = fetch_scaler_from_lmdb()
+    features = scaler.transform(features)
+    return features
+
+
+def extract_and_transform_features(rows: pd.DataFrame) -> np.array:
+    features = extract_features(rows)
+    features = transform_features(features)
+    return features
 
 
 def initialize_faiss_index():
@@ -143,38 +187,40 @@ def load_faiss_indices_from_lmdb() -> Dict[str, faiss.Index]:
 @st.experimental_memo
 def get_image(
     image_bytes: bytes, scaling_factor: Optional[Tuple[int, int]] = None
-) -> Image.Image:
-    try:
-        image = jpeg.decode(
-            image_bytes, turbojpeg.TJPF_RGB, scaling_factor=scaling_factor
-        )
-        if image.shape[2] != 3:
-            raise ValueError
-        else:
-            return image
-    except ValueError:
-        logger.warning(
-            "get_image() tried opening an image that isn't RGB. Trying to force it to be RGB..."
-        )
-        image = force_image_to_rgb(Image.open(BytesIO(image_bytes)))
+) -> np.array:
+    image = jpeg.decode(image_bytes, turbojpeg.TJPF_RGB, scaling_factor=scaling_factor)
+    if image.shape[2] == 3:
         return image
+    else:
+        # If the image is not RGB, we try to convert it to RGB
+        image = force_image_to_rgb(Image.open(BytesIO(image_bytes)))
+        return np.array(image)
+
+
+def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, bytes]:
+    row = get_capture_rows_by_ids([id])
+    image_bytes = get_images_by_keys([row.at[0, "lmdb_key"]])[0]
+    return row, image_bytes
 
 
 @st.experimental_memo
-def get_row_and_image_by_id(id: Union[int, float]) -> Tuple[pd.DataFrame, bytes]:
+def get_capture_rows_by_ids(ids: List[Union[int, float]]) -> pd.DataFrame:
     with SqlQuery() as (connection, frogs):
-        statement = db.select(frogs).where(frogs.c.id == id)
+        statement = db.select(frogs).where(frogs.c.id.in_(ids))
         result = connection.execute(statement)
-        row = pd.DataFrame(result.fetchall())
+        rows = pd.DataFrame(result.fetchall())
+    return rows
 
+
+@st.experimental_memo
+def get_images_by_keys(keys: List[str]) -> List[bytes]:
     try:
         with LmdbReader(LMDB_PATH) as reader:
-            image_bytes = reader.read(row.at[0, "lmdb_key"].encode())
+            image_list = [reader.read(key.encode()) for key in keys]
     except Exception as e:
-        logger.error(f"Error fetching id {id} from Postgres or LMDB, id not found!")
+        logger.error("Error fetching images from LMDB, a key was not found!")
         raise e
-
-    return row, image_bytes
+    return image_list
 
 
 @st.experimental_singleton

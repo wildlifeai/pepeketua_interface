@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -7,12 +7,16 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from inference_model.inference_model import get_inference_model
 from utilities.utilities import (
-    DEFAULT_K_NEAREST,
+    DEFAULT_KNN_VALUE,
+    extract_and_transform_features,
+    fetch_scaler_from_lmdb,
+    get_capture_rows_by_ids,
     get_image,
     get_row_and_image_by_id,
     get_usage_instructions,
     jpeg,
     load_faiss_indices_from_lmdb,
+    MAX_NN_VALUE,
 )
 
 
@@ -41,8 +45,8 @@ def main():
             k_nearest = st.slider(
                 label="Select K value for K Nearest Neighbors",
                 min_value=1,
-                max_value=50,
-                value=DEFAULT_K_NEAREST,
+                max_value=MAX_NN_VALUE,
+                value=DEFAULT_KNN_VALUE,
             )
 
             # Scale factor for loading images
@@ -95,9 +99,9 @@ def generate_images(
         query_df, query_image_bytes
     )
 
-    knn_df = get_knn_results(grids, k_nearest, new_id_vectors)
+    nn_df = get_knn_results(grids, new_id_vectors, query_df, k_nearest)
 
-    display_queries_and_nn_images(query_df, query_image_bytes, knn_df, scaling_factor)
+    display_queries_and_nn_images(query_df, nn_df, query_image_bytes, scaling_factor)
 
 
 def match_images_to_rows(
@@ -107,8 +111,8 @@ def match_images_to_rows(
         "filepath" in df
     ), "Excel sheet must contain the column 'filepath', please re-upload the correct sheet"
     image_bytes = pd.Series(dtype=bytes)
-
     for image_file in image_files:
+
         image_index = df["filepath"].str.endswith(image_file.name, na=False)
 
         # Can replace this with usage of "do_frog_ids_match" column
@@ -117,10 +121,10 @@ def match_images_to_rows(
             f"'{image_file.name}' must only be referenced by ONE row, "
             f"currently referenced by the rows {df[image_index].index}: {df[image_index]}"
         )
-
+        # Set the image bytes to the matched (single) index
         image_bytes.loc[image_index.idxmax()] = image_file.getvalue()
 
-    # Return relevant rows in df
+    # Reorder df to match image order and return relevant rows in df
     df = df.loc[image_bytes.index]
     df, image_bytes = df.reset_index(drop=True), image_bytes.reset_index(drop=True)
 
@@ -140,18 +144,22 @@ def calculate_query_id_vectors(
 
 @st.experimental_memo
 def get_knn_results(
-    grids: pd.Series, k_nearest: int, new_id_vectors: np.array
+    grids: pd.Series,
+    new_id_vectors: np.array,
+    query_df: pd.DataFrame,
+    k_nearest: int,
 ) -> pd.DataFrame:
     nn_ids, distances_list, query_indices = [], [], []
 
     # Search for nearest neighbors to query vectors
     grid_faiss_indices = load_faiss_indices_from_lmdb()
     for grid_name, group in grids.groupby(grids):
+
         current_grid_query_indices = group.index
         query_vectors = new_id_vectors[current_grid_query_indices]
 
         grid_faiss_index = grid_faiss_indices[grid_name]
-        distances, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
+        distances, nn = grid_faiss_index.search(query_vectors, k=MAX_NN_VALUE)
 
         distances_list.append(distances)
         nn_ids.append(nn)
@@ -162,16 +170,41 @@ def get_knn_results(
     query_indices = np.concatenate(query_indices)
 
     nn_df = pd.DataFrame(
-        data={"distances": distances.tolist(), "nn_ids": nn_ids.tolist()},
+        data={"distances": list(distances), "nn_ids": list(nn_ids)},
         index=query_indices,
     ).sort_index()
+
+    nn_df = rerank_nn(query_df, nn_df, k_nearest)
+
     return nn_df
+
+
+def rerank_nn(
+    query_df: pd.DataFrame, nn_df: pd.DataFrame, k_nearest: int
+) -> pd.DataFrame:
+    def get_features(query_row: Dict[str, Any]) -> np.array:
+        nn_ids = query_row["nn_ids"].tolist()
+        capture_rows = get_capture_rows_by_ids(nn_ids)
+        features = extract_and_transform_features(capture_rows)
+        return features
+
+    scaler = fetch_scaler_from_lmdb()
+    # List of MAX_NN_VALUE x len(FeatureProcessing.FEATURE_COLUMNS) arrays
+    features = list(map(get_features, nn_df.to_dict("records")))
+    # Stack into len(query_df) x MAX_NN_VALUE x len(FeatureProcessing.FEATURE_COLUMNS)
+    features = np.stack(features)
+
+    # Array of size len(query_df) x len(FeatureProcessing.FEATURE_COLUMNS)
+    query_features = extract_and_transform_features(query_df)
+
+    # write me a function that calculates norm of diff between each row in query_features
+    # and each row in features then sort with np.argsort and rerank
 
 
 def display_queries_and_nn_images(
     query_df: pd.DataFrame,
-    query_image_bytes: pd.Series,
     nn_df: pd.DataFrame,
+    query_image_bytes: pd.Series,
     scaling_factor: Tuple[int, int],
 ):
     # Set up container structure to use to render nearest neighbor screen (main screen)
@@ -285,31 +318,21 @@ def show_nn_image_section(
         options=range(1, len(nn_indices) + 1),
         value=1,
     )
-
+    nn_id = nn_indices[nn_number - 1]
     # The right column form submission button is used here
-    # We write this "useless" if clause because we need the default rendered so there won't be blank spaces,
-    # And once "Show" is pressed- refresh image and data in expander. THIS IS NOT CODE COPYING
-    submitted = right_column_form.form_submit_button(label="Show")
-    if submitted:
-        show_nn_image_and_capture_info(
-            nn_number, nn_indices, scaling_factor, bottom_right, top_right
-        )
-    else:
-        show_nn_image_and_capture_info(
-            nn_number, nn_indices, scaling_factor, bottom_right, top_right
-        )
+    # We ignore the button's result because we need the default rendered as well, so there won't be blank spaces.
+    # Once "Show" is pressed- the image and data in expander are refreshed automatically.
+    _ = right_column_form.form_submit_button(label="Show")
+    show_nn_image_and_capture_info(nn_id, scaling_factor, bottom_right, top_right)
 
 
 def show_nn_image_and_capture_info(
-    nn_number: int,
-    nn_indices: List[int],
+    nn_id: int,
     scaling_factor: Tuple[int, int],
     bottom_right: st.container,
     top_right: st.container,
 ):
-    captured_frog_row, captured_frog_image_bytes = get_row_and_image_by_id(
-        nn_indices[nn_number - 1]
-    )
+    captured_frog_row, captured_frog_image_bytes = get_row_and_image_by_id(nn_id)
     top_right.image(get_image(captured_frog_image_bytes, scaling_factor=scaling_factor))
     bottom_right_expander = bottom_right.expander("Show capture info")
     bottom_right_expander.dataframe(captured_frog_row.T, use_container_width=True)

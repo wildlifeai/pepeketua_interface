@@ -1,4 +1,5 @@
 import datetime
+import pickle
 from os.path import join
 from typing import Dict, List, Tuple
 from zipfile import ZipFile
@@ -7,10 +8,12 @@ import numpy as np
 import pandas as pd
 import sqlalchemy as db
 from loguru import logger
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from utilities.lmdb_classes import LmdbWriter
 from utilities.utilities import (
+    extract_features,
     FILES_PATH,
     LMDB_PATH,
     PUKEOKAHU_EXCEL_FILE,
@@ -401,6 +404,19 @@ def save_photos_to_lmdb(df: pd.DataFrame, zip_path: str) -> pd.DataFrame:
     return df
 
 
+def fit_and_save_scaler(merged_frog_id_filepath_df: pd.DataFrame) -> None:
+    """Fit and save StandardScaler to lmdb for later result reranking"""
+    scaler = StandardScaler()
+    svl_weight = extract_features(merged_frog_id_filepath_df)
+
+    # Rows which contain NA are not used to compute the mean and std
+    scaler.fit(svl_weight)
+
+    # Save for later use
+    with LmdbWriter(output_path=LMDB_PATH) as writer:
+        writer.add(b"scaler", pickle.dumps(scaler))
+
+
 def save_to_postgres(df: pd.DataFrame, sql_server_string: str) -> None:
     """Save all frog information up until now to the local PostgreSQL server"""
     engine = db.create_engine(sql_server_string)
@@ -451,6 +467,9 @@ def run():
     merged_frog_id_filepath_df = save_photos_to_lmdb(
         merged_frog_id_filepath_df, FILES_PATH
     )
+
+    # Fit a StandardScaler to the SVL and Weight columns for later use
+    fit_and_save_scaler(merged_frog_id_filepath_df)
 
     save_to_postgres(merged_frog_id_filepath_df, SQL_SERVER_STRING)
 
