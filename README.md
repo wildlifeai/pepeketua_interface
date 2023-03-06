@@ -85,8 +85,14 @@ to a LMDB.
 
 ## Rebuilding base docker images
 This project uses two base images specified by the following Dockerfiles. If you need to rebuild them here's how:
-- `base_image.Dockerfile` - This docker holds the Ubuntu packages needed to run the code. To rebuild and push it to my docker repository, download it and run the command `docker build -t ghostcow/pepeketua:base_image -f base_image.Dockerfile && docker push ghostcow/pepeketua:base_image` 
-- `python_env.Dockerfile` - This docker is built from `ghostcow/pepeketua:base_image` and clones the repository to it's memory, then installs all python packages specified by `requirements.txt`. It provides the python environment used by the code. To rebuild and push it to my docker repository, download the file and run the command `docker build -t ghostcow/pepeketua:python_env -f python_env.Dockerfile && docker push ghostcow/pepeketua:python_env`
+- `base_image.Dockerfile` - This docker holds the Ubuntu packages needed to run the code. To rebuild and push it to my docker repository, download it and run the command  
+  ```shell
+  docker build -t ghostcow/pepeketua:base_image -f base_image.Dockerfile && docker push ghostcow/pepeketua:base_image
+  ``` 
+- `python_env.Dockerfile` - This docker is built from `ghostcow/pepeketua:base_image` and clones the repository to it's memory, then installs all python packages specified by `requirements.txt`. It provides the python environment used by the code. To rebuild and push it to my docker repository, download the file and run the command  
+  ```shell
+  docker build -t ghostcow/pepeketua:python_env -f python_env.Dockerfile && docker push ghostcow/pepeketua:python_env
+  ```
 
 ## Citation
 
