@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -7,9 +7,10 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from inference_model.inference_model import get_inference_model
 from utilities.utilities import (
+    compare_bincodes,
     DEFAULT_KNN_VALUE,
-    extract_and_transform_features,
-    fetch_scaler_from_lmdb,
+    extract_and_transform_numeric_features,
+    get_bincode_features,
     get_capture_rows_by_ids,
     get_image,
     get_row_and_image_by_id,
@@ -149,7 +150,8 @@ def get_knn_results(
     query_df: pd.DataFrame,
     k_nearest: int,
 ) -> pd.DataFrame:
-    nn_ids, distances_list, query_indices = [], [], []
+    # nn_ids, distances_list, query_indices = [], [], []
+    nn_ids, query_indices = [], []
 
     # Search for nearest neighbors to query vectors
     grid_faiss_indices = load_faiss_indices_from_lmdb()
@@ -159,46 +161,62 @@ def get_knn_results(
         query_vectors = new_id_vectors[current_grid_query_indices]
 
         grid_faiss_index = grid_faiss_indices[grid_name]
-        distances, nn = grid_faiss_index.search(query_vectors, k=MAX_NN_VALUE)
+        distances, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
 
-        distances_list.append(distances)
         nn_ids.append(nn)
         query_indices.append(current_grid_query_indices)
 
-    distances = np.concatenate(distances_list)
-    nn_ids = np.concatenate(nn_ids)
+    nn_ids = np.concatenate(nn_ids).astype(dtype=np.int32)
     query_indices = np.concatenate(query_indices)
 
+    nn_ids = rerank_nn(nn_ids, query_df)
+
     nn_df = pd.DataFrame(
-        data={"distances": list(distances), "nn_ids": list(nn_ids)},
+        data={"nn_ids": nn_ids.tolist()},
         index=query_indices,
     ).sort_index()
-
-    nn_df = rerank_nn(query_df, nn_df, k_nearest)
 
     return nn_df
 
 
-def rerank_nn(
-    query_df: pd.DataFrame, nn_df: pd.DataFrame, k_nearest: int
-) -> pd.DataFrame:
-    def get_features(query_row: Dict[str, Any]) -> np.array:
-        nn_ids = query_row["nn_ids"].tolist()
-        capture_rows = get_capture_rows_by_ids(nn_ids)
-        features = extract_and_transform_features(capture_rows)
-        return features
+def rerank_nn(nn_ids: np.array, query_df: pd.DataFrame) -> pd.DataFrame:
+    def get_nn_features(ids: List[float]) -> np.array:
+        capture_rows = get_capture_rows_by_ids(ids)
+        numeric_features = extract_and_transform_numeric_features(capture_rows)
+        bincode_features = get_bincode_features(capture_rows)
+        return numeric_features, bincode_features
 
-    scaler = fetch_scaler_from_lmdb()
-    # List of MAX_NN_VALUE x len(FeatureProcessing.FEATURE_COLUMNS) arrays
-    features = list(map(get_features, nn_df.to_dict("records")))
-    # Stack into len(query_df) x MAX_NN_VALUE x len(FeatureProcessing.FEATURE_COLUMNS)
-    features = np.stack(features)
+    nn_numeric_features, nn_bincode_features = list(
+        zip(*map(get_nn_features, nn_ids.tolist()))
+    )
 
-    # Array of size len(query_df) x len(FeatureProcessing.FEATURE_COLUMNS)
-    query_features = extract_and_transform_features(query_df)
+    # Array of size len(query_df) x 1 x len(FeatureProcessing.FEATURE_COLUMNS) for broadcasting
+    query_numeric_features = extract_and_transform_numeric_features(query_df)[
+        :, np.newaxis, :
+    ]
+    # Stack numeric features to array of size len(query_df) x k_nearest x len(FeatureProcessing.FEATURE_COLUMNS)
+    nn_numeric_features = np.stack(nn_numeric_features)
+    # Calculate the difference between the query features and the nearest neighbor features
+    # Array of size len(query_df) x k_nearest
+    numeric_diff = np.linalg.norm(
+        query_numeric_features - nn_numeric_features, axis=2, keepdims=False
+    )
 
-    # write me a function that calculates norm of diff between each row in query_features
-    # and each row in features then sort with np.argsort and rerank
+    # Calc bincode difference
+    # Array of size len(query_df) x k_nearest
+    nn_bincode_features = np.stack(nn_bincode_features)
+    query_bincode_features = get_bincode_features(query_df)[:, np.newaxis]
+    # Broadcasting len(query_df) x 1 and len(query_df) x k_nearest
+    # To result in diff of size len(query_df) x k_nearest
+    bincode_diff = compare_bincodes(query_bincode_features, nn_bincode_features)
+
+    # Add the bincode features difference to the numeric features difference
+    diff = numeric_diff + bincode_diff
+
+    # Sort (rerank) the nearest neighbor ids based on the difference
+    reranking_index = np.argsort(diff, axis=1)
+    nn_ids = np.take_along_axis(nn_ids, reranking_index, axis=1)
+    return nn_ids
 
 
 def display_queries_and_nn_images(
@@ -220,7 +238,6 @@ def display_queries_and_nn_images(
 
     # Left column showing the query images
     query_index = show_query_image_section(
-        nn_df,
         query_df,
         query_image_bytes,
         scaling_factor,
@@ -278,7 +295,6 @@ def generate_nn_screen_containers() -> Tuple[
 
 
 def show_query_image_section(
-    nn_df: pd.DataFrame,
     query_df: pd.DataFrame,
     query_image_bytes: pd.Series,
     scaling_factor: Tuple[int, int],
@@ -289,7 +305,7 @@ def show_query_image_section(
     """Render left column showing the query images"""
     query_index = mid_left.selectbox(
         label="Select query to show",
-        options=nn_df.index,
+        options=query_df.index,
         format_func=lambda q: query_df.loc[q, "filepath"],
     )
     top_left.image(
@@ -321,7 +337,7 @@ def show_nn_image_section(
     nn_id = nn_indices[nn_number - 1]
     # The right column form submission button is used here
     # We ignore the button's result because we need the default rendered as well, so there won't be blank spaces.
-    # Once "Show" is pressed- the image and data in expander are refreshed automatically.
+    # Once "Show" is pressed, the image and data in expander are refreshed automatically.
     _ = right_column_form.form_submit_button(label="Show")
     show_nn_image_and_capture_info(nn_id, scaling_factor, bottom_right, top_right)
 

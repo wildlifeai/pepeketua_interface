@@ -112,15 +112,15 @@ def to_float(x):
         return np.nan
 
 
-class FeatureProcessing:
+class FeatureProcessingSettings:
     FEATURE_COLUMNS = ["SVL (mm)", "Weight (g)"]
     FEATURE_AGG_DICT = {col: to_float for col in FEATURE_COLUMNS}
 
 
 def extract_features(rows: pd.DataFrame):
     features = (
-        rows[FeatureProcessing.FEATURE_COLUMNS]
-        .agg(FeatureProcessing.FEATURE_AGG_DICT)
+        rows[FeatureProcessingSettings.FEATURE_COLUMNS]
+        .agg(FeatureProcessingSettings.FEATURE_AGG_DICT)
         .to_numpy()
     )
     return features
@@ -132,10 +132,50 @@ def transform_features(features: np.array):
     return features
 
 
-def extract_and_transform_features(rows: pd.DataFrame) -> np.array:
+def extract_and_transform_numeric_features(rows: pd.DataFrame) -> np.array:
     features = extract_features(rows)
     features = transform_features(features)
     return features
+
+
+def get_bincode_features(df: pd.DataFrame) -> np.array:
+    """Extract the binary coding given to identified frogs"""
+    return (
+        df.loc[:, "Updated capture photo code"]
+        .str.split("-", n=1, expand=True)[0]
+        .values
+    )
+
+
+@np.vectorize
+def compare_bincodes(a: str, b: str) -> float:
+    """
+    Compare two frog binary codes and return their editing distance.
+    The function is vectorized to allow comparing two arrays of codes with broadcasting.
+    :param a: four letter binary code string (e.g. "0101")
+    :param b: another four letter binary code string
+    :return: normalized editing distance between the two codes
+    """
+    len_a = len(a)
+    if len_a != len(b):
+        return 1.0
+    return sum(map(compare_letter, a, b)) / len_a
+
+
+def compare_letter(a: str, b: str) -> float:
+    """
+    Compare two letters and return their editing distance.
+    Since "_" means some joint wasn't identified, we return half a count for it.
+    :param a:
+    :param b:
+    :return:
+    """
+    if a == "_" or b == "_":
+        return 0.5
+    elif a != b:
+        return 1.0
+    else:
+        return 0.0
 
 
 def initialize_faiss_index():
@@ -209,6 +249,8 @@ def get_capture_rows_by_ids(ids: List[Union[int, float]]) -> pd.DataFrame:
         statement = db.select(frogs).where(frogs.c.id.in_(ids))
         result = connection.execute(statement)
         rows = pd.DataFrame(result.fetchall())
+        # Order the rows by the order of the ids, important for downstream processing
+        rows = rows.set_index("id").loc[ids].reset_index(drop=True)
     return rows
 
 
