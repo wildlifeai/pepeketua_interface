@@ -7,12 +7,18 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from inference_model.inference_model import get_inference_model
 from utilities.utilities import (
-    DEFAULT_K_NEAREST,
+    compare_bincodes,
+    DEFAULT_KNN_VALUE,
+    extract_and_transform_numeric_features,
+    FeatureProcessing,
+    get_bincode_features,
+    get_capture_rows_by_ids,
     get_image,
     get_row_and_image_by_id,
     get_usage_instructions,
     jpeg,
     load_faiss_indices_from_lmdb,
+    MAX_NN_VALUE,
 )
 
 
@@ -41,8 +47,8 @@ def main():
             k_nearest = st.slider(
                 label="Select K value for K Nearest Neighbors",
                 min_value=1,
-                max_value=50,
-                value=DEFAULT_K_NEAREST,
+                max_value=MAX_NN_VALUE,
+                value=DEFAULT_KNN_VALUE,
             )
 
             # Scale factor for loading images
@@ -95,9 +101,9 @@ def generate_images(
         query_df, query_image_bytes
     )
 
-    knn_df = get_knn_results(grids, k_nearest, new_id_vectors)
+    nn_df = get_knn_results(grids, new_id_vectors, query_df, k_nearest)
 
-    display_queries_and_nn_images(query_df, query_image_bytes, knn_df, scaling_factor)
+    display_queries_and_nn_images(query_df, nn_df, query_image_bytes, scaling_factor)
 
 
 def match_images_to_rows(
@@ -107,8 +113,8 @@ def match_images_to_rows(
         "filepath" in df
     ), "Excel sheet must contain the column 'filepath', please re-upload the correct sheet"
     image_bytes = pd.Series(dtype=bytes)
-
     for image_file in image_files:
+
         image_index = df["filepath"].str.endswith(image_file.name, na=False)
 
         # Can replace this with usage of "do_frog_ids_match" column
@@ -117,10 +123,10 @@ def match_images_to_rows(
             f"'{image_file.name}' must only be referenced by ONE row, "
             f"currently referenced by the rows {df[image_index].index}: {df[image_index]}"
         )
-
+        # Set the image bytes to the matched (single) index
         image_bytes.loc[image_index.idxmax()] = image_file.getvalue()
 
-    # Return relevant rows in df
+    # Reorder df to match image order and return relevant rows in df
     df = df.loc[image_bytes.index]
     df, image_bytes = df.reset_index(drop=True), image_bytes.reset_index(drop=True)
 
@@ -140,38 +146,96 @@ def calculate_query_id_vectors(
 
 @st.experimental_memo
 def get_knn_results(
-    grids: pd.Series, k_nearest: int, new_id_vectors: np.array
+    grids: pd.Series,
+    new_id_vectors: np.array,
+    query_df: pd.DataFrame,
+    k_nearest: int,
 ) -> pd.DataFrame:
-    nn_ids, distances_list, query_indices = [], [], []
+    # nn_ids, distances_list, query_indices = [], [], []
+    nn_ids, query_indices = [], []
 
     # Search for nearest neighbors to query vectors
     grid_faiss_indices = load_faiss_indices_from_lmdb()
     for grid_name, group in grids.groupby(grids):
+
         current_grid_query_indices = group.index
         query_vectors = new_id_vectors[current_grid_query_indices]
 
         grid_faiss_index = grid_faiss_indices[grid_name]
         distances, nn = grid_faiss_index.search(query_vectors, k=k_nearest)
 
-        distances_list.append(distances)
         nn_ids.append(nn)
         query_indices.append(current_grid_query_indices)
 
-    distances = np.concatenate(distances_list)
-    nn_ids = np.concatenate(nn_ids)
+    nn_ids = np.concatenate(nn_ids).astype(dtype=np.int32)
     query_indices = np.concatenate(query_indices)
 
+    nn_ids = rerank_nn(nn_ids, query_df)
+
     nn_df = pd.DataFrame(
-        data={"distances": distances.tolist(), "nn_ids": nn_ids.tolist()},
+        data={"nn_ids": nn_ids.tolist()},
         index=query_indices,
     ).sort_index()
+
     return nn_df
+
+
+def rerank_nn(nn_ids: np.array, query_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Rerank the nearest neighbor results using the features defined in FeatureProcessing, if possible.
+    :param nn_ids: Array of size len(query_df) x k_nearest, containing the nearest neighbor ids
+    :param query_df: DataFrame containing the query data
+    :return:
+    """
+    # If query_df does not contain all the columns required for feature extraction, return the original nn_ids
+    if not all(col in query_df for col in FeatureProcessing.FEATURE_COLUMNS):
+        return nn_ids
+
+    def get_nn_features(ids: List[float]) -> np.array:
+        capture_rows = get_capture_rows_by_ids(ids)
+        numeric_features = extract_and_transform_numeric_features(capture_rows)
+        bincode_features = get_bincode_features(capture_rows, is_query=False)
+        return numeric_features, bincode_features
+
+    nn_numeric_features, nn_bincode_features = list(
+        zip(*map(get_nn_features, nn_ids.tolist()))
+    )
+
+    # Array of size len(query_df) x 1 x len(FeatureProcessing.FEATURE_COLUMNS) for broadcasting
+    numeric_query_features = extract_and_transform_numeric_features(query_df)[
+        :, np.newaxis, :
+    ]
+    # Array of size len(query_df) x k_nearest x len(FeatureProcessing.FEATURE_COLUMNS)
+    nn_numeric_features = np.stack(nn_numeric_features)
+    # Calculate the difference between the query features and the nearest neighbor features
+    # Array of size len(query_df) x k_nearest
+    numeric_diff = np.linalg.norm(
+        numeric_query_features - nn_numeric_features, axis=2, keepdims=False
+    )
+
+    # Calculate bincode difference between each query and its nn (e.g. between "1100" and "1110"- the difference is 1)
+    # Array of size len(query_df) x 1 for broadcasting
+    query_bincode_features = get_bincode_features(query_df, is_query=True)[
+        :, np.newaxis
+    ]
+    # Array of size len(query_df) x k_nearest
+    nn_bincode_features = np.stack(nn_bincode_features)
+    # Bincode diff of size len(query_df) x k_nearest
+    bincode_diff = compare_bincodes(query_bincode_features, nn_bincode_features)
+
+    # Add the bincode features difference to the numeric features difference
+    diff = numeric_diff + bincode_diff
+
+    # Sort (rerank) the nearest neighbor ids based on the difference
+    reranking_index = np.argsort(diff, axis=1)
+    nn_ids = np.take_along_axis(nn_ids, reranking_index, axis=1)
+    return nn_ids
 
 
 def display_queries_and_nn_images(
     query_df: pd.DataFrame,
-    query_image_bytes: pd.Series,
     nn_df: pd.DataFrame,
+    query_image_bytes: pd.Series,
     scaling_factor: Tuple[int, int],
 ):
     # Set up container structure to use to render nearest neighbor screen (main screen)
@@ -187,7 +251,6 @@ def display_queries_and_nn_images(
 
     # Left column showing the query images
     query_index = show_query_image_section(
-        nn_df,
         query_df,
         query_image_bytes,
         scaling_factor,
@@ -245,7 +308,6 @@ def generate_nn_screen_containers() -> Tuple[
 
 
 def show_query_image_section(
-    nn_df: pd.DataFrame,
     query_df: pd.DataFrame,
     query_image_bytes: pd.Series,
     scaling_factor: Tuple[int, int],
@@ -256,7 +318,7 @@ def show_query_image_section(
     """Render left column showing the query images"""
     query_index = mid_left.selectbox(
         label="Select query to show",
-        options=nn_df.index,
+        options=query_df.index,
         format_func=lambda q: query_df.loc[q, "filepath"],
     )
     top_left.image(
@@ -285,31 +347,21 @@ def show_nn_image_section(
         options=range(1, len(nn_indices) + 1),
         value=1,
     )
-
+    nn_id = nn_indices[nn_number - 1]
     # The right column form submission button is used here
-    # We write this "useless" if clause because we need the default rendered so there won't be blank spaces,
-    # And once "Show" is pressed- refresh image and data in expander. THIS IS NOT CODE COPYING
-    submitted = right_column_form.form_submit_button(label="Show")
-    if submitted:
-        show_nn_image_and_capture_info(
-            nn_number, nn_indices, scaling_factor, bottom_right, top_right
-        )
-    else:
-        show_nn_image_and_capture_info(
-            nn_number, nn_indices, scaling_factor, bottom_right, top_right
-        )
+    # We ignore the button's result because we need the default rendered as well, so there won't be blank spaces.
+    # Once "Show" is pressed, the image and data in expander are refreshed automatically.
+    _ = right_column_form.form_submit_button(label="Show")
+    show_nn_image_and_capture_info(nn_id, scaling_factor, bottom_right, top_right)
 
 
 def show_nn_image_and_capture_info(
-    nn_number: int,
-    nn_indices: List[int],
+    nn_id: int,
     scaling_factor: Tuple[int, int],
     bottom_right: st.container,
     top_right: st.container,
 ):
-    captured_frog_row, captured_frog_image_bytes = get_row_and_image_by_id(
-        nn_indices[nn_number - 1]
-    )
+    captured_frog_row, captured_frog_image_bytes = get_row_and_image_by_id(nn_id)
     top_right.image(get_image(captured_frog_image_bytes, scaling_factor=scaling_factor))
     bottom_right_expander = bottom_right.expander("Show capture info")
     bottom_right_expander.dataframe(captured_frog_row.T, use_container_width=True)
