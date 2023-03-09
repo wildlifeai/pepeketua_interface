@@ -112,21 +112,25 @@ def to_float(x):
         return np.nan
 
 
-class FeatureProcessingSettings:
-    FEATURE_COLUMNS = ["SVL (mm)", "Weight (g)"]
-    FEATURE_AGG_DICT = {col: to_float for col in FEATURE_COLUMNS}
+class FeatureProcessing:
+    NUMERIC_FEATURE_COLUMNS = ["SVL (mm)", "Weight (g)"]
+    NUMERIC_FEATURE_AGG_DICT = {col: to_float for col in NUMERIC_FEATURE_COLUMNS}
+    LOCAL_BINCODE_COLUMN = "Updated capture photo code"
+    QUERY_BINCODE_COLUMN = "Capture photo code"
+    INVALID_BINCODE_CHARACTERS = "_-?"
+    FEATURE_COLUMNS = NUMERIC_FEATURE_COLUMNS + [QUERY_BINCODE_COLUMN]
 
 
 def extract_features(rows: pd.DataFrame):
     features = (
-        rows[FeatureProcessingSettings.FEATURE_COLUMNS]
-        .agg(FeatureProcessingSettings.FEATURE_AGG_DICT)
+        rows[FeatureProcessing.NUMERIC_FEATURE_COLUMNS]
+        .agg(FeatureProcessing.NUMERIC_FEATURE_AGG_DICT)
         .to_numpy()
     )
     return features
 
 
-def transform_features(features: np.array):
+def transform_numeric_features(features: np.array):
     scaler = fetch_scaler_from_lmdb()
     features = scaler.transform(features)
     return features
@@ -134,21 +138,21 @@ def transform_features(features: np.array):
 
 def extract_and_transform_numeric_features(rows: pd.DataFrame) -> np.array:
     features = extract_features(rows)
-    features = transform_features(features)
+    features = transform_numeric_features(features)
     return features
 
 
-def get_bincode_features(df: pd.DataFrame) -> np.array:
+def get_bincode_features(df: pd.DataFrame, is_query: bool) -> np.array:
     """Extract the binary coding given to identified frogs"""
-    return (
-        df.loc[:, "Updated capture photo code"]
-        .str.split("-", n=1, expand=True)[0]
-        .values
-    )
+    if is_query:
+        bincode_column = FeatureProcessing.QUERY_BINCODE_COLUMN
+    else:
+        bincode_column = FeatureProcessing.LOCAL_BINCODE_COLUMN
+    return df.loc[:, bincode_column].str.split("-", n=1, expand=True)[0].values
 
 
 @np.vectorize
-def compare_bincodes(a: str, b: str) -> float:
+def compare_bincodes(a: Union[str, float], b: Union[str, float]) -> float:
     """
     Compare two frog binary codes and return their editing distance.
     The function is vectorized to allow comparing two arrays of codes with broadcasting.
@@ -157,7 +161,7 @@ def compare_bincodes(a: str, b: str) -> float:
     :return: normalized editing distance between the two codes
     """
     len_a = len(a)
-    if len_a != len(b):
+    if len_a != len(b) or pd.isna(a) or pd.isna(b):
         return 1.0
     return sum(map(compare_letter, a, b)) / len_a
 
@@ -165,12 +169,15 @@ def compare_bincodes(a: str, b: str) -> float:
 def compare_letter(a: str, b: str) -> float:
     """
     Compare two letters and return their editing distance.
-    Since "_" means some joint wasn't identified, we return half a count for it.
+    Since characters such as "_" means some joint wasn't identified, we return half a count for it.
     :param a:
     :param b:
     :return:
     """
-    if a == "_" or b == "_":
+    if (
+        a in FeatureProcessing.INVALID_BINCODE_CHARACTERS
+        or b in FeatureProcessing.INVALID_BINCODE_CHARACTERS
+    ):
         return 0.5
     elif a != b:
         return 1.0

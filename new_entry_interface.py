@@ -10,6 +10,7 @@ from utilities.utilities import (
     compare_bincodes,
     DEFAULT_KNN_VALUE,
     extract_and_transform_numeric_features,
+    FeatureProcessing,
     get_bincode_features,
     get_capture_rows_by_ids,
     get_image,
@@ -180,10 +181,20 @@ def get_knn_results(
 
 
 def rerank_nn(nn_ids: np.array, query_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Rerank the nearest neighbor results using the features defined in FeatureProcessing, if possible.
+    :param nn_ids: Array of size len(query_df) x k_nearest, containing the nearest neighbor ids
+    :param query_df: DataFrame containing the query data
+    :return:
+    """
+    # If query_df does not contain all the columns required for feature extraction, return the original nn_ids
+    if not all(col in query_df for col in FeatureProcessing.FEATURE_COLUMNS):
+        return nn_ids
+
     def get_nn_features(ids: List[float]) -> np.array:
         capture_rows = get_capture_rows_by_ids(ids)
         numeric_features = extract_and_transform_numeric_features(capture_rows)
-        bincode_features = get_bincode_features(capture_rows)
+        bincode_features = get_bincode_features(capture_rows, is_query=False)
         return numeric_features, bincode_features
 
     nn_numeric_features, nn_bincode_features = list(
@@ -191,23 +202,25 @@ def rerank_nn(nn_ids: np.array, query_df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Array of size len(query_df) x 1 x len(FeatureProcessing.FEATURE_COLUMNS) for broadcasting
-    query_numeric_features = extract_and_transform_numeric_features(query_df)[
+    numeric_query_features = extract_and_transform_numeric_features(query_df)[
         :, np.newaxis, :
     ]
-    # Stack numeric features to array of size len(query_df) x k_nearest x len(FeatureProcessing.FEATURE_COLUMNS)
+    # Array of size len(query_df) x k_nearest x len(FeatureProcessing.FEATURE_COLUMNS)
     nn_numeric_features = np.stack(nn_numeric_features)
     # Calculate the difference between the query features and the nearest neighbor features
     # Array of size len(query_df) x k_nearest
     numeric_diff = np.linalg.norm(
-        query_numeric_features - nn_numeric_features, axis=2, keepdims=False
+        numeric_query_features - nn_numeric_features, axis=2, keepdims=False
     )
 
-    # Calc bincode difference
+    # Calculate bincode difference between each query and its nn (e.g. between "1100" and "1110"- the difference is 1)
+    # Array of size len(query_df) x 1 for broadcasting
+    query_bincode_features = get_bincode_features(query_df, is_query=True)[
+        :, np.newaxis
+    ]
     # Array of size len(query_df) x k_nearest
     nn_bincode_features = np.stack(nn_bincode_features)
-    query_bincode_features = get_bincode_features(query_df)[:, np.newaxis]
-    # Broadcasting len(query_df) x 1 and len(query_df) x k_nearest
-    # To result in diff of size len(query_df) x k_nearest
+    # Bincode diff of size len(query_df) x k_nearest
     bincode_diff = compare_bincodes(query_bincode_features, nn_bincode_features)
 
     # Add the bincode features difference to the numeric features difference
