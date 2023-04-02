@@ -93,6 +93,15 @@ This project uses two base images specified by the following Dockerfiles. If you
   ```shell
   docker build --no-cache -t ghostcow/pepeketua:python_env -f python_env.Dockerfile . && docker push ghostcow/pepeketua:python_env
   ```
+  
+## Notes 
+If you decide to update the capture sheets and rebuild the app's database with new captures, please- 
+1. Download the code.
+2. Remove [this row,](https://github.com/wildlifeai/pepeketua_interface/blob/main/previous_capture_processing/clean_save_old_capture_data.py#L443) which filters out all captures from 2020-.
+3. Rebuild the ```python_env``` base docker image ([instructions here](#rebuilding-base-docker-images)).
+4. Run steps 7 and 8 from [this section](#to-start-the-app).
+
+E-mail me for assistance.
 
 ## Citation
 
