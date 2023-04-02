@@ -94,14 +94,15 @@ This project uses two base images specified by the following Dockerfiles. If you
   docker build --no-cache -t ghostcow/pepeketua:python_env -f python_env.Dockerfile . && docker push ghostcow/pepeketua:python_env
   ```
   
-## Notes 
-If you decide to update the capture sheets and rebuild the app's database with new captures, please- 
-1. Download the code.
-2. Remove [this row,](https://github.com/wildlifeai/pepeketua_interface/blob/main/previous_capture_processing/clean_save_old_capture_data.py#L443) which filters out all captures from 2020-.
-3. Rebuild the ```python_env``` base docker image ([instructions here](#rebuilding-base-docker-images)).
-4. Run steps 7 and 8 from [this section](#to-start-the-app).
+## Enabling app to accept captures after 2020 
+Right now the app supports only captures from before the year 2020, and filters out the rest. To allow the app to accept captures after 2020-
+1. Close the app by following [these instructions](#to-close-the-app).
+2. Create a pull request to remove [the date filter here.](https://github.com/wildlifeai/pepeketua_interface/blob/main/previous_capture_processing/clean_save_old_capture_data.py#L443). Remove or edit it to fit your needs, commit, and wait until it's merged.
+3. Rebuild the docker made from ```python_env.Dockerfile```, [see instructions here](#rebuilding-base-docker-images).
+4. Rerun the capture processing script by following step 7 from [this section](#to-start-the-app).
+5. Restart your app by following step 8 from [this section](#to-start-the-app).
 
-E-mail me for assistance.
+E-mail me with any questions.
 
 ## Citation
 
