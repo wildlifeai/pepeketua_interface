@@ -21,7 +21,7 @@ from utilities.lmdb_classes import LmdbReader, LmdbWriter
 BATCH_SIZE = 32
 KP_ID_MODEL_INPUT_IMAGE_SIZE = (224, 224)
 ROT_MODEL_INPUT_IMAGE_SIZE = (128, 128)
-FILES_PATH = "files"
+FILES_PATH = "pepeketua_files"
 LMDB_PATH = "lmdb"
 ZIP_NAMES = [
     "whareorino_a.zip",
@@ -31,12 +31,13 @@ ZIP_NAMES = [
     "pukeokahu.zip",
 ]
 SQL_SERVER_STRING = "postgresql://postgres:PepeketuaFrogs@sql-server/postgres"
+#### UPDATE EXCEL NAMES ON NOTION ####
 WHAREORINO_EXCEL_FILE = join(FILES_PATH, "whareorino.xls")
 PUKEOKAHU_EXCEL_FILE = join(FILES_PATH, "pukeokahu.xls")
 GRID_NAMES = ["Grid A", "Grid B", "Grid C", "Grid D", "Pukeokahu Frog Monitoring"]
 LANDMARK_MODEL = join(FILES_PATH, "landmark_model_714")
 ROTATION_MODEL = join(FILES_PATH, "rotation_model_weights_10")
-IDENTIFY_MODEL = join(FILES_PATH, "ep29_vloss0.0249931520129752_emb.ckpt")
+IDENTIFY_MODEL = join(FILES_PATH, "identify_emb_model_weights_ep29")
 EMBEDDING_LENGTH = 64
 DEFAULT_KNN_VALUE = 10
 MAX_NN_VALUE = 50
