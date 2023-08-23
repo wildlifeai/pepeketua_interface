@@ -1,8 +1,11 @@
 # Jupyter notebook checkpoint
+__pycache__/
 .ipynb_checkpoints
 *.log
 *.xls
 *.csv
 .idea
-pepeketua_files
 debug
+lmdb
+installation_files
+pepeketua_interface

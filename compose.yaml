@@ -1,0 +1,34 @@
+services:
+  sql-server:
+    image: postgres:15.2
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: "PepeketuaFrogs"
+    volumes:
+      - type: volume
+        source: db-data
+        target: /var/lib/postgresql/data
+
+  pepeketua-interface:
+    image: ghostcow/pepeketua:python_env
+    depends_on:
+      - sql-server
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      # NOTE: uncomment to update code locally
+      # - type: bind
+      #   source: ./
+      #   target: /app
+      - type: bind
+        source: ./installation_files
+        target: /app/pepeketua_interface
+      - type: volume
+        source: lmdb-data
+        target: /app/lmdb
+    command: ["streamlit", "run", "new_entry_interface.py", "--server.port=80"]
+
+volumes:
+  db-data:
+  lmdb-data:

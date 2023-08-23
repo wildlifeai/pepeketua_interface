@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from inference_model.inference_model import get_inference_model
+from pipelines.inference_model.inference_model import get_inference_model
 from utilities.utilities import (
     compare_bincodes,
     DEFAULT_KNN_VALUE,
